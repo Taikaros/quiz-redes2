@@ -1,0 +1,7 @@
+# Copiar a .dev.vars (no se sube a git).
+# Con MODO_LOCAL=1, si DATABASE_URL está vacía se usa la base en memoria con 4 compañeros de ejemplo.
+MODO_LOCAL=1
+DATABASE_URL=
+CLERK_ISSUER=
+CLERK_JWKS_URL=
+JWT_SECRET=quiz-redes2-fceqyn-secret-2026-key-32bytes!

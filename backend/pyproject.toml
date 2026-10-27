@@ -1,0 +1,16 @@
+[project]
+name = "taller-api"
+version = "0.1.0"
+description = "API del taller: FastAPI en Cloudflare Python Workers"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "pyjwt[crypto]",
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk",
+]

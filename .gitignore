@@ -1,0 +1,26 @@
+# Dependencias
+node_modules/
+.venv/
+.venv-workers/
+python_modules/
+
+# Builds y caches
+dist/
+.wrangler/
+__pycache__/
+
+# Generado por pywrangler en cada `dev`/`deploy`
+pylock.toml
+
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Zips originales del material (ya descomprimidos en frontend/ y backend/)
+*.zip
+.vscode/
+.neon

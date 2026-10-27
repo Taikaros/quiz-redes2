@@ -1,0 +1,16 @@
+{
+  "name": "quiz-redes2-api",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-08-27",
+  "workers_dev": true,
+  "compatibility_flags": ["python_workers"],
+  "observability": {
+    "logs": { "enabled": true }
+  },
+  "vars": {
+    "MODO_LOCAL": "1",
+    "CLERK_ISSUER": "",
+    "CLERK_JWKS_URL": "",
+    "JWT_SECRET": "quiz-redes2-fceqyn-secret-2026-key-32bytes!"
+  }
+}
