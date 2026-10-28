@@ -5,6 +5,9 @@
   // URL pública *.workers.dev (es la que va en VITE_API_URL del front)
   "workers_dev": true,
   "compatibility_flags": ["python_workers"],
+  "build": {
+    "command": "uv run pywrangler sync"
+  },
   "observability": {
     "logs": { "enabled": true }
   },
