@@ -8,8 +8,8 @@ export type QuizMode = 'pool' | 'topics' | 'all'
 
 const QUIZ_MODE_STORAGE_KEY = 'redes2_quiz_mode'
 const QUIZ_TOPICS_STORAGE_KEY = 'redes2_quiz_selected_units'
-const ADAPTIVE_STORAGE_PREFIX = 'redes2_adaptive_profile_v2_'
-const SLOW_RESPONSE_MS = 30000 // > 30 segundos dispara refuerzo de preguntas del mismo estilo
+const ADAPTIVE_STORAGE_PREFIX = 'redes2_adaptive_profile_v3_'
+const SLOW_RESPONSE_MS = 60000 // > 1 minuto (60s) dispara refuerzo de preguntas del mismo estilo
 
 type AdaptiveQuestionStat = {
   wrongCount: number
@@ -1041,9 +1041,9 @@ function QuizWorkspace() {
                         generateNewPool(poolSize, nextCrit, true)
                       }}
                     >
-                      <option value="adaptive">🧠 Adaptativo IA (Azar + errores y &gt; 30s)</option>
+                      <option value="adaptive">🧠 Adaptativo IA (Azar + errores y &gt; 1 min)</option>
                       <option value="random">🎲 100% Aleatorio puro</option>
-                      <option value="pending">🎯 Priorizar pendientes / lentas (&gt; 30s)</option>
+                      <option value="pending">🎯 Priorizar pendientes / lentas (&gt; 1 min)</option>
                     </select>
                   </label>
                 </div>
@@ -1066,7 +1066,7 @@ function QuizWorkspace() {
                 <div className="adaptive-learning-title">
                   <span>🧠 <strong>Aprendizaje Adaptativo Activo:</strong></span>
                   <small>
-                    El sistema mide tus errores y respuestas que demoran <strong>&gt; 30 segundos</strong> para incluir en tus pulls más preguntas del mismo estilo, con opciones en orden aleatorio.
+                    El sistema mide tus errores y respuestas que demoran <strong>&gt; 1 minuto (60 s)</strong> para incluir en tus pulls más preguntas del mismo estilo, con opciones en orden aleatorio.
                   </small>
                 </div>
                 {adaptiveInsights.reinforcedStyles.length > 0 ? (
@@ -1076,14 +1076,14 @@ function QuizWorkspace() {
                       <span key={item.style} className="adaptive-style-chip">
                         <strong>{item.style}</strong>
                         {item.errors > 0 && <span className="chip-err">✗ {item.errors} err</span>}
-                        {item.slow > 0 && <span className="chip-slow">⏱️ {item.slow} (&gt;30s)</span>}
+                        {item.slow > 0 && <span className="chip-slow">⏱️ {item.slow} (&gt;1m)</span>}
                       </span>
                     ))}
                   </div>
                 ) : (
                   <div className="adaptive-tags-row">
                     <span className="adaptive-label">
-                      Respondé preguntas para que el motor detecte qué estilos reforzar (errores o tiempo &gt; 30 s).
+                      Respondé preguntas para que el motor detecte qué estilos reforzar (errores o tiempo &gt; 1 min).
                     </span>
                   </div>
                 )}
@@ -1204,17 +1204,17 @@ function QuizWorkspace() {
                         ? 'timer-pill timer-slow'
                         : 'timer-pill timer-fast'
                     }
-                    title="Si tardás más de 30 segundos, el sistema agregará más preguntas de este mismo estilo en los próximos pulls"
+                    title="Si tardás más de 1 minuto (60s), el sistema agregará más preguntas de este mismo estilo en los próximos pulls"
                   >
                     ⏱️ {((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s{' '}
-                    {(currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS ? '(> 30s • refuerza estilo)' : '(≤ 30s • rápido)'}
+                    {(currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS ? '(> 1 min • refuerza estilo)' : '(≤ 1 min • en tiempo)'}
                   </span>
                 ) : (
                   <span
                     className={elapsedMs > SLOW_RESPONSE_MS ? 'timer-pill timer-slow' : 'timer-pill'}
-                    title="Umbral adaptativo: > 30.0 segundos suma más preguntas de este estilo"
+                    title="Umbral adaptativo: > 1 minuto (60s) suma más preguntas de este estilo"
                   >
-                    ⏱️ {(elapsedMs / 1000).toFixed(1)}s {elapsedMs > SLOW_RESPONSE_MS && '• > 30s (refuerzo)'}
+                    ⏱️ {(elapsedMs / 1000).toFixed(1)}s {elapsedMs > SLOW_RESPONSE_MS && '• > 1 min (refuerzo)'}
                   </span>
                 )}
 
@@ -1313,10 +1313,10 @@ function QuizWorkspace() {
                         <div className="exp-adaptive-note">
                           🧠 <strong>Nota de aprendizaje adaptativo:</strong> Como{' '}
                           {!currentAnswer.is_correct && (currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS
-                            ? 'esta respuesta fue incorrecta y demoró más de 30 segundos'
+                            ? 'esta respuesta fue incorrecta y demoró más de 1 minuto (60s)'
                             : !currentAnswer.is_correct
                               ? 'tuviste un error en esta pregunta'
-                              : 'tardaste más de 30 segundos en responder'}{' '}
+                              : 'tardaste más de 1 minuto (60s) en responder'}{' '}
                           ({((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s), el generador de Pulls priorizará más preguntas del estilo{' '}
                           <strong>“{currentQ.style || currentQ.unit}”</strong>.
                         </div>
