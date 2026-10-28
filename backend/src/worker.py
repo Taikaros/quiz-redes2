@@ -12,7 +12,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 import jwt
@@ -743,60 +743,46 @@ async def _get_clerk_key(env, kid: str):
     return _keys.get(kid)
 
 
-async def current_user(request: Request, authorization: str = Header(default="")) -> dict:
-    """Devuelve {'user_id', 'username', 'display_name'} validando token local HS256 o Clerk RS256."""
+async def current_user(
+    request: Request,
+    authorization: str = Header(default=""),
+    x_user_name: str = Header(default=""),
+    x_user_username: str = Header(default=""),
+) -> dict:
+    """Devuelve {'user_id', 'username', 'display_name'} verificando el token de Clerk (o modo local)."""
     env = get_env(request)
     if not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Iniciá sesión para participar en el cuestionario")
+        raise HTTPException(401, "Falta el token")
+
+    header_dname = unquote(x_user_name).strip() if x_user_name else ""
+    header_uname = unquote(x_user_username).strip() if x_user_username else ""
+
+    if simulado(env, "CLERK_JWKS_URL"):
+        uid = "usuario-local"
+        uname = header_uname or "usuario-local"
+        dname = header_dname or "Usuario Local"
+        return {"user_id": uid, "username": uname, "display_name": dname}
+
     token = authorization.removeprefix("Bearer ").strip()
-
-    # 1. Intentar decodificar como token local HS256 (emitido por /api/auth/login o /api/auth/register)
     try:
-        claims = jwt.decode(token, _jwt_secret(env), algorithms=["HS256"])
-        if claims.get("iss") == "quiz-redes2-local":
-            return {
-                "user_id": claims["sub"],
-                "username": claims.get("username", claims["sub"]),
-                "display_name": claims.get("display_name", claims.get("username", "Participante")),
-            }
-    except jwt.PyJWTError:
-        pass
+        kid = jwt.get_unverified_header(token)["kid"]
+        key = await _get_clerk_key(env, kid)
+        if key is None:
+            raise HTTPException(401, "Clave desconocida")
+        claims = jwt.decode(
+            token,
+            key,
+            algorithms=["RS256"],
+            issuer=env.CLERK_ISSUER,
+            options={"verify_aud": False},
+        )
+    except Exception:
+        raise HTTPException(401, "Token de Clerk inválido")
 
-    # 2. Si es token 'demo' en MODO_LOCAL
-    if token == "demo" and config(env, "MODO_LOCAL") == "1":
-        uid = "local:invitado"
-        if uid not in _mem_users:
-            _mem_users[uid] = {
-                "user_id": uid,
-                "username": "invitado",
-                "display_name": "Estudiante Invitado",
-                "password_hash": "",
-                "created_at": _ahora(),
-            }
-        return {"user_id": uid, "username": "invitado", "display_name": "Estudiante Invitado"}
-
-    # 3. Intentar verificar como token RS256 de Clerk
-    if config(env, "CLERK_JWKS_URL"):
-        try:
-            kid = jwt.get_unverified_header(token)["kid"]
-            key = await _get_clerk_key(env, kid)
-            if key is None:
-                raise HTTPException(401, "Clave de Clerk desconocida")
-            claims = jwt.decode(
-                token,
-                key,
-                algorithms=["RS256"],
-                issuer=env.CLERK_ISSUER,
-                options={"verify_aud": False},
-            )
-            sub = claims["sub"]
-            uname = claims.get("username") or sub[-8:]
-            dname = claims.get("name") or uname
-            return {"user_id": sub, "username": uname, "display_name": dname}
-        except jwt.PyJWTError:
-            raise HTTPException(401, "Token inválido")
-
-    raise HTTPException(401, "Sesión inválida o expirada")
+    sub = claims["sub"]
+    uname = header_uname or claims.get("username") or sub[-8:]
+    dname = header_dname or claims.get("name") or uname
+    return {"user_id": sub, "username": uname, "display_name": dname}
 
 
 # ---------------------------------------------------------------- Modelos Pydantic

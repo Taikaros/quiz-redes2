@@ -2,15 +2,17 @@
   "name": "quiz-redes2-api",
   "main": "src/worker.py",
   "compatibility_date": "2026-08-27",
+  // URL pública *.workers.dev (es la que va en VITE_API_URL del front)
   "workers_dev": true,
   "compatibility_flags": ["python_workers"],
   "observability": {
     "logs": { "enabled": true }
   },
   "vars": {
-    "MODO_LOCAL": "1",
-    "CLERK_ISSUER": "",
-    "CLERK_JWKS_URL": "",
-    "JWT_SECRET": "quiz-redes2-fceqyn-secret-2026-key-32bytes!"
+    // Dominio de tu app en Clerk (Frontend API URL, igual que en taller-jcsa-2026)
+    "CLERK_ISSUER": "https://suitable-halibut-4341.clerk.accounts.dev",
+    "CLERK_JWKS_URL": "https://suitable-halibut-4341.clerk.accounts.dev/.well-known/jwks.json"
   }
+  // Secretos: NEON_CONNECTION_STRING
+  // -> uv run pywrangler secret put NEON_CONNECTION_STRING
 }

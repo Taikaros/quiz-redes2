@@ -1,7 +1,7 @@
 import { Link, Outlet } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { Gate, UserMenu, useToken } from './auth'
+import { Gate, UserMenu, useParticipantInfo, useToken } from './auth'
 import { createApi, type Question } from './api'
 
 export function Layout() {
@@ -146,7 +146,11 @@ export function QuizPage() {
 
 function QuizWorkspace() {
   const getToken = useToken()
-  const api = useMemo(() => createApi(getToken), [getToken])
+  const userInfo = useParticipantInfo()
+  const api = useMemo(
+    () => createApi(getToken, userInfo),
+    [getToken, userInfo.displayName, userInfo.username],
+  )
   const qc = useQueryClient()
 
   const [selectedUnit, setSelectedUnit] = useState<string>('ALL')
@@ -488,7 +492,11 @@ function QuizWorkspace() {
 
 export function LeaderboardPage() {
   const getToken = useToken()
-  const api = useMemo(() => createApi(getToken), [getToken])
+  const userInfo = useParticipantInfo()
+  const api = useMemo(
+    () => createApi(getToken, userInfo),
+    [getToken, userInfo.displayName, userInfo.username],
+  )
 
   const boardQuery = useQuery({
     queryKey: ['leaderboard'],
