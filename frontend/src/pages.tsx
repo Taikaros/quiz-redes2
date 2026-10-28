@@ -71,7 +71,7 @@ export function Home() {
     queryFn: api.questions,
   })
 
-  const totalQ = questions.data?.length ?? 38
+  const totalQ = questions.data?.length ?? 58
 
   const goToQuizMode = (mode: QuizMode, preselectedUnits?: string[]) => {
     try {
@@ -1085,7 +1085,7 @@ export function LeaderboardPage() {
 
   const entries = boardQuery.data ?? []
   const top3 = entries.slice(0, 3)
-  const totalQ = entries[0]?.total_questions ?? 38
+  const totalQ = entries[0]?.total_questions ?? 58
 
   return (
     <div className="leaderboard-page">
