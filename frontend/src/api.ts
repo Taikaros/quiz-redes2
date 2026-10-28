@@ -9,6 +9,7 @@ export type QuestionStats = {
 export type Question = {
   id: string
   unit: string
+  style?: string
   question: string
   options: string[]
   correct: number
@@ -26,6 +27,7 @@ export type UserAnswerRecord = {
   selected_option: number
   is_correct: boolean
   answered_at: string
+  response_time_ms?: number
 }
 
 export type MeResponse = {
@@ -42,6 +44,7 @@ export type AnswerResponse = {
   selected_option: number
   is_correct: boolean
   correct_option: number
+  response_time_ms?: number
   explanation: string
   stats: QuestionStats
   user_summary: {
@@ -68,7 +71,7 @@ export type LeaderboardEntry = {
 export type Api = {
   me: () => Promise<MeResponse>
   questions: () => Promise<Question[]>
-  submitAnswer: (question_id: string, selected_option: number) => Promise<AnswerResponse>
+  submitAnswer: (question_id: string, selected_option: number, response_time_ms?: number) => Promise<AnswerResponse>
   resetMyAnswers: () => Promise<{ ok: boolean }>
   leaderboard: () => Promise<LeaderboardEntry[]>
   linkLegacyAccount: (username: string, password: string) => Promise<{
@@ -311,7 +314,7 @@ export function createApi(
           ...q,
           stats: buildMockStats(q.id, q.correct),
         })),
-      submitAnswer: async (question_id, selected_option) => {
+      submitAnswer: async (question_id, selected_option, response_time_ms = 0) => {
         const q = BASE_QUESTIONS.find((x) => x.id === question_id)!
         const prev = mockMyAnswers[question_id]
         if (prev) {
@@ -326,6 +329,7 @@ export function createApi(
           selected_option,
           is_correct,
           answered_at: new Date().toISOString(),
+          response_time_ms,
         }
         const answered_count = Object.keys(mockMyAnswers).length
         const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
@@ -334,6 +338,7 @@ export function createApi(
           selected_option,
           is_correct,
           correct_option: q.correct,
+          response_time_ms,
           explanation: q.explanation,
           stats: buildMockStats(question_id, q.correct),
           user_summary: {
@@ -428,12 +433,13 @@ export function createApi(
   return {
     me: () => call<MeResponse>('/api/me'),
     questions: () => call<Question[]>('/api/questions'),
-    submitAnswer: (question_id, selected_option) =>
+    submitAnswer: (question_id, selected_option, response_time_ms = 0) =>
       call<AnswerResponse>('/api/answer', {
         method: 'POST',
         body: JSON.stringify({
           question_id,
           selected_option,
+          response_time_ms: Math.max(0, Math.round(response_time_ms)),
           display_name: userInfo.displayName,
           username: userInfo.username,
         }),

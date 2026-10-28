@@ -1,13 +1,23 @@
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Gate, UserMenu, useParticipantInfo, useToken } from './auth'
-import { createApi, type Question } from './api'
+import { createApi, type Question, type UserAnswerRecord } from './api'
 
 export type QuizMode = 'pool' | 'topics' | 'all'
 
 const QUIZ_MODE_STORAGE_KEY = 'redes2_quiz_mode'
 const QUIZ_TOPICS_STORAGE_KEY = 'redes2_quiz_selected_units'
+const ADAPTIVE_STORAGE_PREFIX = 'redes2_adaptive_profile_v1_'
+const SLOW_RESPONSE_MS = 5000 // > 5 segundos dispara refuerzo de preguntas del mismo estilo
+
+type AdaptiveQuestionStat = {
+  wrongCount: number
+  slowCount: number
+  attempts: number
+  lastResponseMs: number
+  lastCorrect: boolean
+}
 
 function shuffleArray<T>(items: T[]): T[] {
   const copy = [...items]
@@ -16,6 +26,18 @@ function shuffleArray<T>(items: T[]): T[] {
     ;[copy[i], copy[j]] = [copy[j], copy[i]]
   }
   return copy
+}
+
+function weightedRandomSample(items: Question[], weights: number[], k: number): string[] {
+  const keyed = items.map((item, idx) => {
+    const w = Math.max(0.05, weights[idx] ?? 1)
+    const u = Math.max(1e-9, Math.random())
+    // Algoritmo Efraimidis-Spirakis para muestreo aleatorio ponderado sin reemplazo
+    const score = Math.pow(u, 1 / w)
+    return { id: item.id, score }
+  })
+  keyed.sort((a, b) => b.score - a.score)
+  return keyed.slice(0, Math.min(k, items.length)).map((x) => x.id)
 }
 
 export function Layout() {
@@ -355,12 +377,32 @@ function QuizWorkspace() {
   })
 
   const [poolSize, setPoolSize] = useState<number>(15)
-  const [poolCriteria, setPoolCriteria] = useState<'random' | 'pending'>('random')
+  const [poolCriteria, setPoolCriteria] = useState<'adaptive' | 'random' | 'pending'>('adaptive')
   const [poolNumber, setPoolNumber] = useState<number>(1)
   const [poolQuestionIds, setPoolQuestionIds] = useState<string[]>([])
   const [shuffleTopicsOrder, setShuffleTopicsOrder] = useState<boolean>(false)
   const [shuffledTopicIds, setShuffledTopicIds] = useState<string[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(0)
+
+  // Orden aleatorio de las 4 opciones (A, B, C, D) por pregunta en la sesión/pull actual
+  const [optionShuffleSeed, setOptionShuffleSeed] = useState<number>(1)
+  // Respuestas emitidas dentro del Pull actual (permite volver a practicar preguntas en un nuevo Pull)
+  const [pullSessionAnswers, setPullSessionAnswers] = useState<Record<string, UserAnswerRecord>>({})
+
+  // Cronómetro de tiempo de respuesta por pregunta (umbral > 5 segundos = 5000 ms)
+  const questionStartRef = useRef<number>(performance.now())
+  const [elapsedMs, setElapsedMs] = useState<number>(0)
+
+  const adaptiveKey = `${ADAPTIVE_STORAGE_PREFIX}${userInfo.username || 'anon'}`
+  const [adaptiveProfile, setAdaptiveProfile] = useState<Record<string, AdaptiveQuestionStat>>(() => {
+    try {
+      const raw = localStorage.getItem(adaptiveKey)
+      if (raw) return JSON.parse(raw)
+    } catch {
+      // ignore
+    }
+    return {}
+  })
 
   const questionsQuery = useQuery({
     queryKey: ['questions'],
@@ -379,10 +421,88 @@ function QuizWorkspace() {
     refetchInterval: 6000,
   })
 
+  const allQuestions: Question[] = questionsQuery.data ?? []
+  const myAnswers = meQuery.data?.answers ?? {}
+
+  // Sincronizar datos históricos del servidor (errores y tiempos > 5s) con el perfil adaptativo local
+  useEffect(() => {
+    if (!meQuery.data?.answers) return
+    setAdaptiveProfile((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const [qid, ans] of Object.entries(meQuery.data.answers)) {
+        const rMs = ans.response_time_ms ?? 0
+        const isSlow = rMs > SLOW_RESPONSE_MS
+        if (!next[qid]) {
+          next[qid] = {
+            wrongCount: ans.is_correct ? 0 : 1,
+            slowCount: isSlow ? 1 : 0,
+            attempts: 1,
+            lastResponseMs: rMs,
+            lastCorrect: ans.is_correct,
+          }
+          changed = true
+        }
+      }
+      if (changed) {
+        try {
+          localStorage.setItem(adaptiveKey, JSON.stringify(next))
+        } catch {
+          // ignore
+        }
+        return next
+      }
+      return prev
+    })
+  }, [meQuery.data?.answers, adaptiveKey])
+
   const answerMutation = useMutation({
-    mutationFn: ({ question_id, selected_option }: { question_id: string; selected_option: number }) =>
-      api.submitAnswer(question_id, selected_option),
-    onSuccess: () => {
+    mutationFn: ({
+      question_id,
+      selected_option,
+      response_time_ms,
+    }: {
+      question_id: string
+      selected_option: number
+      response_time_ms: number
+    }) => api.submitAnswer(question_id, selected_option, response_time_ms),
+    onSuccess: (data) => {
+      const rMs = data.response_time_ms ?? 0
+      const isSlow = rMs > SLOW_RESPONSE_MS
+      setPullSessionAnswers((prev) => ({
+        ...prev,
+        [data.question_id]: {
+          selected_option: data.selected_option,
+          is_correct: data.is_correct,
+          answered_at: new Date().toISOString(),
+          response_time_ms: rMs,
+        },
+      }))
+      setAdaptiveProfile((prev) => {
+        const cur = prev[data.question_id] ?? {
+          wrongCount: 0,
+          slowCount: 0,
+          attempts: 0,
+          lastResponseMs: 0,
+          lastCorrect: true,
+        }
+        const next: Record<string, AdaptiveQuestionStat> = {
+          ...prev,
+          [data.question_id]: {
+            wrongCount: cur.wrongCount + (data.is_correct ? 0 : 1),
+            slowCount: cur.slowCount + (isSlow ? 1 : 0),
+            attempts: cur.attempts + 1,
+            lastResponseMs: rMs,
+            lastCorrect: data.is_correct,
+          },
+        }
+        try {
+          localStorage.setItem(adaptiveKey, JSON.stringify(next))
+        } catch {
+          // ignore
+        }
+        return next
+      })
       qc.invalidateQueries({ queryKey: ['questions'] })
       qc.invalidateQueries({ queryKey: ['me'] })
       qc.invalidateQueries({ queryKey: ['leaderboard'] })
@@ -392,15 +512,19 @@ function QuizWorkspace() {
   const resetMutation = useMutation({
     mutationFn: api.resetMyAnswers,
     onSuccess: () => {
+      setPullSessionAnswers({})
+      setAdaptiveProfile({})
+      try {
+        localStorage.removeItem(adaptiveKey)
+      } catch {
+        // ignore
+      }
       qc.invalidateQueries({ queryKey: ['questions'] })
       qc.invalidateQueries({ queryKey: ['me'] })
       qc.invalidateQueries({ queryKey: ['leaderboard'] })
       setCurrentIndex(0)
     },
   })
-
-  const allQuestions: Question[] = questionsQuery.data ?? []
-  const myAnswers = meQuery.data?.answers ?? {}
 
   const units = useMemo(() => {
     const map = new Map<string, number>()
@@ -410,6 +534,47 @@ function QuizWorkspace() {
     return Array.from(map.entries())
   }, [allQuestions])
 
+  // Analizar qué estilos de preguntas necesitan refuerzo (errores o tiempo de respuesta > 5 segundos)
+  const adaptiveInsights = useMemo(() => {
+    const styleBoost = new Map<string, { errors: number; slow: number; score: number }>()
+    const unitBoost = new Map<string, number>()
+    let totalSlowCount = 0
+    let totalWrongCount = 0
+
+    for (const q of allQuestions) {
+      const styleName = q.style || q.unit
+      const localStat = adaptiveProfile[q.id]
+      const serverAns = myAnswers[q.id]
+
+      const wrong = localStat ? localStat.wrongCount : serverAns && !serverAns.is_correct ? 1 : 0
+      const slow =
+        localStat
+          ? localStat.slowCount
+          : serverAns?.response_time_ms && serverAns.response_time_ms > SLOW_RESPONSE_MS
+            ? 1
+            : 0
+
+      if (wrong > 0 || slow > 0) {
+        totalWrongCount += wrong
+        totalSlowCount += slow
+        const prev = styleBoost.get(styleName) ?? { errors: 0, slow: 0, score: 0 }
+        const addedScore = wrong * 3.5 + slow * 2.5
+        styleBoost.set(styleName, {
+          errors: prev.errors + wrong,
+          slow: prev.slow + slow,
+          score: prev.score + addedScore,
+        })
+        unitBoost.set(q.unit, (unitBoost.get(q.unit) ?? 0) + wrong * 1.5 + slow * 1.0)
+      }
+    }
+
+    const reinforcedStyles = Array.from(styleBoost.entries())
+      .sort((a, b) => b[1].score - a[1].score)
+      .map(([style, data]) => ({ style, ...data }))
+
+    return { styleBoost, unitBoost, reinforcedStyles, totalSlowCount, totalWrongCount }
+  }, [allQuestions, adaptiveProfile, myAnswers])
+
   // Inicializar temas seleccionados por defecto si está vacío cuando cargan las preguntas
   useEffect(() => {
     if (units.length > 0 && selectedUnits.length === 0) {
@@ -418,26 +583,60 @@ function QuizWorkspace() {
     }
   }, [units, selectedUnits.length])
 
-  // Función para generar un nuevo Pull Aleatorio de preguntas
+  // Función para generar un nuevo Pull Aleatorio y Adaptativo de preguntas
   const generateNewPool = (
     size: number = poolSize,
-    criteria: 'random' | 'pending' = poolCriteria,
+    criteria: 'adaptive' | 'random' | 'pending' = poolCriteria,
     incrementCounter: boolean = true,
   ) => {
     if (allQuestions.length === 0) return
-    let candidateIds: string[] = []
-    if (criteria === 'pending') {
+    let selectedIds: string[] = []
+
+    if (criteria === 'adaptive') {
+      // Muestreo aleatorio ponderado: todas las preguntas pueden salir al azar, pero se inyectan
+      // con mucha mayor probabilidad preguntas del mismo ESTILO donde el usuario falló o tardó > 5s
+      const weights = allQuestions.map((q) => {
+        const styleName = q.style || q.unit
+        const sBoost = adaptiveInsights.styleBoost.get(styleName)?.score ?? 0
+        const uBoost = adaptiveInsights.unitBoost.get(q.unit) ?? 0
+        const localStat = adaptiveProfile[q.id]
+        const serverAns = myAnswers[q.id]
+
+        let w = 1.0 + sBoost + uBoost * 0.4
+        const isWrong = (localStat && !localStat.lastCorrect) || (serverAns && !serverAns.is_correct)
+        const isSlow =
+          (localStat && localStat.lastResponseMs > SLOW_RESPONSE_MS) ||
+          (serverAns?.response_time_ms && serverAns.response_time_ms > SLOW_RESPONSE_MS)
+        const isUnanswered = !localStat && !serverAns
+
+        if (isWrong) w += 4.5
+        if (isSlow) w += 3.0
+        if (isUnanswered) w += 1.4
+        if (!isWrong && !isSlow && !isUnanswered) w *= 0.65
+        return w
+      })
+      selectedIds = weightedRandomSample(allQuestions, weights, size)
+    } else if (criteria === 'pending') {
       const pendingOrWrong = allQuestions
-        .filter((q) => !myAnswers[q.id] || !myAnswers[q.id].is_correct)
+        .filter((q) => !myAnswers[q.id] || !myAnswers[q.id].is_correct || (myAnswers[q.id]?.response_time_ms ?? 0) > SLOW_RESPONSE_MS)
         .map((q) => q.id)
-      const alreadyCorrect = allQuestions
-        .filter((q) => myAnswers[q.id]?.is_correct)
+      const alreadyCorrectFast = allQuestions
+        .filter((q) => myAnswers[q.id]?.is_correct && (myAnswers[q.id]?.response_time_ms ?? 0) <= SLOW_RESPONSE_MS)
         .map((q) => q.id)
-      candidateIds = [...shuffleArray(pendingOrWrong), ...shuffleArray(alreadyCorrect)]
+      selectedIds = [...shuffleArray(pendingOrWrong), ...shuffleArray(alreadyCorrectFast)].slice(
+        0,
+        Math.min(size, allQuestions.length),
+      )
     } else {
-      candidateIds = shuffleArray(allQuestions.map((q) => q.id))
+      selectedIds = shuffleArray(allQuestions.map((q) => q.id)).slice(
+        0,
+        Math.min(size, allQuestions.length),
+      )
     }
-    setPoolQuestionIds(candidateIds.slice(0, Math.min(size, allQuestions.length)))
+
+    setPoolQuestionIds(selectedIds)
+    setPullSessionAnswers({})
+    setOptionShuffleSeed((s) => s + 1)
     if (incrementCounter) {
       setPoolNumber((n) => n + 1)
     }
@@ -447,13 +646,9 @@ function QuizWorkspace() {
   // Generar el primer pull automáticamente apenas llegan las preguntas
   useEffect(() => {
     if (allQuestions.length > 0 && poolQuestionIds.length === 0) {
-      const ids = shuffleArray(allQuestions.map((q) => q.id)).slice(
-        0,
-        Math.min(poolSize, allQuestions.length),
-      )
-      setPoolQuestionIds(ids)
+      generateNewPool(poolSize, poolCriteria, false)
     }
-  }, [allQuestions, poolQuestionIds.length, poolSize])
+  }, [allQuestions.length])
 
   const changeMode = (nextMode: QuizMode) => {
     setQuizMode(nextMode)
@@ -546,16 +741,46 @@ function QuizWorkspace() {
     return allQuestions
   }, [allQuestions, quizMode, poolQuestionIds, poolSize, selectedUnits, shuffleTopicsOrder, shuffledTopicIds])
 
+  // Orden aleatorio de las 4 opciones (0..3) para cada pregunta en el pull/sesión actual
+  const optionOrderMap = useMemo(() => {
+    const map: Record<string, number[]> = {}
+    for (const q of allQuestions) {
+      map[q.id] = shuffleArray([0, 1, 2, 3])
+    }
+    return map
+  }, [allQuestions.length, optionShuffleSeed])
+
   const safeIndex = Math.min(currentIndex, Math.max(0, filteredQuestions.length - 1))
   const currentQ = filteredQuestions[safeIndex]
-  const currentAnswer = currentQ ? myAnswers[currentQ.id] : undefined
+  const currentAnswer = currentQ
+    ? quizMode === 'pool' && poolNumber > 1
+      ? pullSessionAnswers[currentQ.id]
+      : (pullSessionAnswers[currentQ.id] ?? myAnswers[currentQ.id])
+    : undefined
+
+  // Reiniciar el cronómetro cada vez que el usuario cambia de pregunta o genera un nuevo pull
+  useEffect(() => {
+    questionStartRef.current = performance.now()
+    setElapsedMs(0)
+  }, [currentQ?.id, poolNumber, quizMode])
+
+  useEffect(() => {
+    if (!currentQ || currentAnswer) return
+    const timer = window.setInterval(() => {
+      setElapsedMs(Math.max(0, Math.round(performance.now() - questionStartRef.current)))
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [currentQ?.id, Boolean(currentAnswer), poolNumber, quizMode])
 
   // Estadísticas del subconjunto activo (Pull / Temas seleccionados / Todas)
   const subsetStats = useMemo(() => {
     let answered = 0
     let correct = 0
     for (const q of filteredQuestions) {
-      const ans = myAnswers[q.id]
+      const ans =
+        quizMode === 'pool' && poolNumber > 1
+          ? pullSessionAnswers[q.id]
+          : (pullSessionAnswers[q.id] ?? myAnswers[q.id])
       if (ans) {
         answered += 1
         if (ans.is_correct) correct += 1
@@ -563,7 +788,7 @@ function QuizWorkspace() {
     }
     const pct = answered > 0 ? Math.round((correct / answered) * 100) : 0
     return { answered, correct, total: filteredQuestions.length, pct }
-  }, [filteredQuestions, myAnswers])
+  }, [filteredQuestions, myAnswers, pullSessionAnswers, quizMode, poolNumber])
 
   if (questionsQuery.isLoading || meQuery.isLoading) {
     return <div className="panel-card">Cargando banco de preguntas y estadísticas…</div>
@@ -785,55 +1010,85 @@ function QuizWorkspace() {
           </div>
 
           {quizMode === 'pool' && (
-            <div className="mode-controls-bar">
-              <div className="mode-controls-left">
-                <span className="pull-badge">Pull #{poolNumber}</span>
-                <label className="inline-control">
-                  <span>Tamaño del pull:</span>
-                  <select
-                    value={poolSize}
-                    onChange={(e) => {
-                      const nextSize = Number(e.target.value)
-                      setPoolSize(nextSize)
-                      generateNewPool(nextSize, poolCriteria, true)
-                    }}
-                  >
-                    <option value={10}>10 preguntas</option>
-                    <option value={15}>15 preguntas (Simulacro)</option>
-                    <option value={20}>20 preguntas</option>
-                    <option value={25}>25 preguntas</option>
-                  </select>
-                </label>
+            <>
+              <div className="mode-controls-bar">
+                <div className="mode-controls-left">
+                  <span className="pull-badge">Pull #{poolNumber}</span>
+                  <label className="inline-control">
+                    <span>Tamaño del pull:</span>
+                    <select
+                      value={poolSize}
+                      onChange={(e) => {
+                        const nextSize = Number(e.target.value)
+                        setPoolSize(nextSize)
+                        generateNewPool(nextSize, poolCriteria, true)
+                      }}
+                    >
+                      <option value={10}>10 preguntas</option>
+                      <option value={15}>15 preguntas (Simulacro)</option>
+                      <option value={20}>20 preguntas</option>
+                      <option value={25}>25 preguntas</option>
+                    </select>
+                  </label>
 
-                <label className="inline-control">
-                  <span>Selección:</span>
-                  <select
-                    value={poolCriteria}
-                    onChange={(e) => {
-                      const nextCrit = e.target.value as 'random' | 'pending'
-                      setPoolCriteria(nextCrit)
-                      generateNewPool(poolSize, nextCrit, true)
-                    }}
+                  <label className="inline-control">
+                    <span>Algoritmo:</span>
+                    <select
+                      value={poolCriteria}
+                      onChange={(e) => {
+                        const nextCrit = e.target.value as 'adaptive' | 'random' | 'pending'
+                        setPoolCriteria(nextCrit)
+                        generateNewPool(poolSize, nextCrit, true)
+                      }}
+                    >
+                      <option value="adaptive">🧠 Adaptativo IA (Azar + errores y &gt; 5s)</option>
+                      <option value="random">🎲 100% Aleatorio puro</option>
+                      <option value="pending">🎯 Priorizar pendientes / lentas (&gt; 5s)</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mode-controls-right">
+                  <span className="subset-progress-pill">
+                    Progreso en este pull: <strong>{subsetStats.correct}/{subsetStats.answered}</strong> aciertos (de {subsetStats.total})
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => generateNewPool(poolSize, poolCriteria, true)}
                   >
-                    <option value="random">Al azar de todos los temas</option>
-                    <option value="pending">Priorizar no respondidas / falladas</option>
-                  </select>
-                </label>
+                    🎲 Generar nuevo Pull
+                  </button>
+                </div>
               </div>
 
-              <div className="mode-controls-right">
-                <span className="subset-progress-pill">
-                  Progreso en este pull: <strong>{subsetStats.correct}/{subsetStats.answered}</strong> aciertos (de {subsetStats.total})
-                </span>
-                <button
-                  type="button"
-                  className="btn-primary btn-sm"
-                  onClick={() => generateNewPool(poolSize, poolCriteria, true)}
-                >
-                  🎲 Generar nuevo Pull
-                </button>
+              <div className="adaptive-learning-bar">
+                <div className="adaptive-learning-title">
+                  <span>🧠 <strong>Aprendizaje Adaptativo Activo:</strong></span>
+                  <small>
+                    El sistema mide tus errores y respuestas que demoran <strong>&gt; 5 segundos</strong> para incluir en tus pulls más preguntas del mismo estilo, con opciones en orden aleatorio.
+                  </small>
+                </div>
+                {adaptiveInsights.reinforcedStyles.length > 0 ? (
+                  <div className="adaptive-tags-row">
+                    <span className="adaptive-label">Reforzando estilos:</span>
+                    {adaptiveInsights.reinforcedStyles.slice(0, 4).map((item) => (
+                      <span key={item.style} className="adaptive-style-chip">
+                        <strong>{item.style}</strong>
+                        {item.errors > 0 && <span className="chip-err">✗ {item.errors} err</span>}
+                        {item.slow > 0 && <span className="chip-slow">⏱️ {item.slow} (&gt;5s)</span>}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="adaptive-tags-row">
+                    <span className="adaptive-label">
+                      Respondé preguntas para que el motor detecte qué estilos reforzar (errores o tiempo &gt; 5 s).
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
+            </>
           )}
 
           {quizMode === 'topics' && (
@@ -910,7 +1165,10 @@ function QuizWorkspace() {
             {/* Píldoras de navegación rápida entre preguntas */}
             <div className="question-dots">
               {filteredQuestions.map((q, idx) => {
-                const ans = myAnswers[q.id]
+                const ans =
+                  quizMode === 'pool' && poolNumber > 1
+                    ? pullSessionAnswers[q.id]
+                    : (pullSessionAnswers[q.id] ?? myAnswers[q.id])
                 let cls = 'q-dot'
                 if (idx === safeIndex) cls += ' current'
                 if (ans) cls += ans.is_correct ? ' answered-ok' : ' answered-bad'
@@ -920,7 +1178,7 @@ function QuizWorkspace() {
                     type="button"
                     className={cls}
                     onClick={() => setCurrentIndex(idx)}
-                    title={`Pregunta ${idx + 1} (${q.unit})`}
+                    title={`Pregunta ${idx + 1} (${q.style || q.unit})`}
                   >
                     {idx + 1}
                   </button>
@@ -929,12 +1187,43 @@ function QuizWorkspace() {
             </div>
 
             <div className="q-header-bar">
-              <span className="unit-badge">{currentQ.unit}</span>
-              <div className="crowd-stat-pill">
-                <span>
-                  📊 <strong>{currentQ.stats.correct_pct}%</strong> de los participantes acertó esta pregunta ({currentQ.stats.total_responses}{' '}
-                  {currentQ.stats.total_responses === 1 ? 'respuesta' : 'respuestas'})
-                </span>
+              <div className="q-badges-left">
+                <span className="unit-badge">{currentQ.unit}</span>
+                {currentQ.style && (
+                  <span className="style-badge" title="Estilo de pregunta para aprendizaje adaptativo">
+                    🏷️ {currentQ.style}
+                  </span>
+                )}
+              </div>
+
+              <div className="q-badges-right">
+                {currentAnswer ? (
+                  <span
+                    className={
+                      (currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS
+                        ? 'timer-pill timer-slow'
+                        : 'timer-pill timer-fast'
+                    }
+                    title="Si tardás más de 5 segundos, el sistema agregará más preguntas de este mismo estilo en los próximos pulls"
+                  >
+                    ⏱️ {((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s{' '}
+                    {(currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS ? '(> 5s • refuerza estilo)' : '(≤ 5s • rápido)'}
+                  </span>
+                ) : (
+                  <span
+                    className={elapsedMs > SLOW_RESPONSE_MS ? 'timer-pill timer-slow' : 'timer-pill'}
+                    title="Umbral adaptativo: > 5.0 segundos suma más preguntas de este estilo"
+                  >
+                    ⏱️ {(elapsedMs / 1000).toFixed(1)}s {elapsedMs > SLOW_RESPONSE_MS && '• > 5s (refuerzo)'}
+                  </span>
+                )}
+
+                <div className="crowd-stat-pill">
+                  <span>
+                    📊 <strong>{currentQ.stats.correct_pct}%</strong> acertó ({currentQ.stats.total_responses}{' '}
+                    {currentQ.stats.total_responses === 1 ? 'resp.' : 'resps.'})
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -942,84 +1231,112 @@ function QuizWorkspace() {
               {safeIndex + 1}. {currentQ.question}
             </h2>
 
-            <div className="options-stack">
-              {currentQ.options.map((optText, idx) => {
-                const isSelected = currentAnswer?.selected_option === idx
-                const isCorrectOption = currentQ.correct === idx
-                const showResults = Boolean(currentAnswer)
-                const optPct = currentQ.stats.option_pcts[idx] ?? 0
-                const optCnt = currentQ.stats.option_counts[idx] ?? 0
+            {(() => {
+              const currentOrder = optionOrderMap[currentQ.id] ?? [0, 1, 2, 3]
+              const correctVisualIdx = currentOrder.indexOf(currentQ.correct)
+              const correctLetter = letters[correctVisualIdx >= 0 ? correctVisualIdx : currentQ.correct]
 
-                let cardClass = 'option-card'
-                if (showResults) {
-                  if (isCorrectOption) cardClass += ' option-correct'
-                  else if (isSelected && !currentAnswer?.is_correct) cardClass += ' option-wrong'
-                } else if (isSelected) {
-                  cardClass += ' option-selected'
-                }
+              return (
+                <>
+                  <div className="options-stack">
+                    {currentOrder.map((origIdx, visualIdx) => {
+                      const optText = currentQ.options[origIdx]
+                      const isSelected = currentAnswer?.selected_option === origIdx
+                      const isCorrectOption = currentQ.correct === origIdx
+                      const showResults = Boolean(currentAnswer)
+                      const optPct = currentQ.stats.option_pcts[origIdx] ?? 0
+                      const optCnt = currentQ.stats.option_counts[origIdx] ?? 0
 
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    className={cardClass}
-                    disabled={answerMutation.isPending}
-                    onClick={() =>
-                      answerMutation.mutate({
-                        question_id: currentQ.id,
-                        selected_option: idx,
-                      })
-                    }
-                  >
-                    {/* Barra de fondo con el porcentaje de participantes que seleccionó esta opción */}
-                    {showResults && (
-                      <div
-                        className="option-pct-bar"
-                        style={{ width: `${optPct}%` }}
-                      />
-                    )}
+                      let cardClass = 'option-card'
+                      if (showResults) {
+                        if (isCorrectOption) cardClass += ' option-correct'
+                        else if (isSelected && !currentAnswer?.is_correct) cardClass += ' option-wrong'
+                      } else if (isSelected) {
+                        cardClass += ' option-selected'
+                      }
 
-                    <div className="option-content-row">
-                      <span className="option-letter">{letters[idx]}</span>
-                      <span className="option-label">{optText}</span>
+                      return (
+                        <button
+                          key={origIdx}
+                          type="button"
+                          className={cardClass}
+                          disabled={answerMutation.isPending}
+                          onClick={() => {
+                            const measuredMs = Math.max(
+                              100,
+                              Math.round(performance.now() - questionStartRef.current),
+                            )
+                            answerMutation.mutate({
+                              question_id: currentQ.id,
+                              selected_option: origIdx,
+                              response_time_ms: measuredMs,
+                            })
+                          }}
+                        >
+                          {/* Barra de fondo con el porcentaje de participantes que seleccionó esta opción */}
+                          {showResults && (
+                            <div
+                              className="option-pct-bar"
+                              style={{ width: `${optPct}%` }}
+                            />
+                          )}
 
-                      {showResults && (
-                        <span className="option-crowd-badge" title={`${optCnt} participantes eligieron esta opción`}>
-                          <strong>{optPct}%</strong> <small>({optCnt})</small>
-                        </span>
+                          <div className="option-content-row">
+                            <span className="option-letter">{letters[visualIdx]}</span>
+                            <span className="option-label">{optText}</span>
+
+                            {showResults && (
+                              <span className="option-crowd-badge" title={`${optCnt} participantes eligieron esta opción`}>
+                                <strong>{optPct}%</strong> <small>({optCnt})</small>
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {currentAnswer && (
+                    <div
+                      className={
+                        currentAnswer.is_correct
+                          ? 'explanation-panel exp-ok'
+                          : 'explanation-panel exp-bad'
+                      }
+                    >
+                      <div className="exp-title">
+                        {currentAnswer.is_correct
+                          ? `✓ ¡Respuesta Correcta! (+10 puntos) • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`
+                          : `✗ Respuesta Incorrecta — La opción correcta es la ${correctLetter} • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`}
+                      </div>
+                      {(!currentAnswer.is_correct || (currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS) && (
+                        <div className="exp-adaptive-note">
+                          🧠 <strong>Nota de aprendizaje adaptativo:</strong> Como{' '}
+                          {!currentAnswer.is_correct && (currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS
+                            ? 'esta respuesta fue incorrecta y demoró más de 5 segundos'
+                            : !currentAnswer.is_correct
+                              ? 'tuviste un error en esta pregunta'
+                              : 'tardaste más de 5 segundos en responder'}{' '}
+                          ({((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s), el generador de Pulls priorizará más preguntas del estilo{' '}
+                          <strong>“{currentQ.style || currentQ.unit}”</strong>.
+                        </div>
                       )}
+                      <p className="exp-text">
+                        <strong>Fundamento de cátedra:</strong> {currentQ.explanation}
+                      </p>
+                      <div className="exp-crowd-note">
+                        Distribución de respuestas de la clase en esta pregunta:{' '}
+                        {currentOrder.map((origIdx, visualIdx) => (
+                          <span key={letters[visualIdx]} className="dist-chip">
+                            Opción {letters[visualIdx]}: <strong>{currentQ.stats.option_pcts[origIdx]}%</strong> ({currentQ.stats.option_counts[origIdx]})
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {currentAnswer && (
-              <div
-                className={
-                  currentAnswer.is_correct
-                    ? 'explanation-panel exp-ok'
-                    : 'explanation-panel exp-bad'
-                }
-              >
-                <div className="exp-title">
-                  {currentAnswer.is_correct
-                    ? '✓ ¡Respuesta Correcta! (+10 puntos)'
-                    : `✗ Respuesta Incorrecta — La opción correcta es la ${letters[currentQ.correct]}`}
-                </div>
-                <p className="exp-text">
-                  <strong>Fundamento de cátedra:</strong> {currentQ.explanation}
-                </p>
-                <div className="exp-crowd-note">
-                  Distribución de respuestas de la clase en esta pregunta:{' '}
-                  {letters.map((L, i) => (
-                    <span key={L} className="dist-chip">
-                      Opción {L}: <strong>{currentQ.stats.option_pcts[i]}%</strong> ({currentQ.stats.option_counts[i]})
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )}
+                </>
+              )
+            })()}
 
             <div className="question-footer-nav">
               <button
