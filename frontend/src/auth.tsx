@@ -3,14 +3,17 @@ import {
   SignedIn,
   SignedOut,
   SignInButton,
+  SignUpButton,
   UserButton,
   useAuth,
   useUser,
 } from '@clerk/clerk-react'
+import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-const KEY = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined)?.trim()
-// Sin clave de Clerk => modo demo (igual que en taller-jcsa-2026). Es constante en tiempo de build.
+const KEY =
+  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined)?.trim() ||
+  'pk_test_ZW1pbmVudC1vY2Vsb3QtMjgwMy5jbGVyay5hY2NvdW50cy5kZXYk'
 export const DEMO = !KEY
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -60,6 +63,9 @@ export function Gate({ children }: { children: ReactNode }) {
             <SignInButton mode="modal">
               <button className="btn-primary">Iniciar sesión</button>
             </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="btn-secondary">Crear cuenta</button>
+            </SignUpButton>
           </div>
         </div>
       </SignedOut>
@@ -75,8 +81,14 @@ export function UserMenu() {
         <SignInButton mode="modal">
           <button className="btn-primary">Ingresar</button>
         </SignInButton>
+        <SignUpButton mode="modal">
+          <button className="btn-secondary">Crear cuenta</button>
+        </SignUpButton>
       </SignedOut>
       <SignedIn>
+        <Link to="/migrate" className="nav-item">
+          Vincular progreso anterior
+        </Link>
         <UserButton />
       </SignedIn>
     </div>

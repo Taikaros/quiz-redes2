@@ -3,10 +3,11 @@
 Basado en la arquitectura de taller-jcsa-2026:
 - FastAPI sobre Cloudflare Python Workers (`WorkerEntrypoint` + `asgi`)
 - Base de datos serverless Neon (PostgreSQL vía HTTP `/sql`) o simulación en memoria (`MODO_LOCAL=1`)
-- Autenticación dual: soporta Login propio de participantes (usuario + contraseña con JWT HS256)
-  y también tokens RS256 de Clerk si se configura `CLERK_JWKS_URL`.
+- Autenticación de participantes mediante tokens RS256 de Clerk.
+- Vinculación de cuentas legadas para conservar las respuestas ya registradas.
 """
 import hashlib
+import hmac
 import json
 import os
 import time
@@ -42,7 +43,6 @@ class _LocalEnv:
         self.NEON_CONNECTION_STRING = ""
         self.CLERK_ISSUER = ""
         self.CLERK_JWKS_URL = ""
-        self.JWT_SECRET = "quiz-redes2-fceqyn-secret-2026-key-32bytes!"
         dev_vars = Path(__file__).resolve().parent.parent / ".dev.vars"
         if dev_vars.exists():
             for line in dev_vars.read_text(encoding="utf-8").splitlines():
@@ -51,7 +51,7 @@ class _LocalEnv:
                     continue
                 k, v = line.split("=", 1)
                 setattr(self, k.strip(), v.strip())
-        for k in ("MODO_LOCAL", "DATABASE_URL", "NEON_CONNECTION_STRING", "CLERK_ISSUER", "CLERK_JWKS_URL", "JWT_SECRET"):
+        for k in ("MODO_LOCAL", "DATABASE_URL", "NEON_CONNECTION_STRING", "CLERK_ISSUER", "CLERK_JWKS_URL"):
             if k in os.environ:
                 setattr(self, k, os.environ[k])
 
@@ -608,8 +608,10 @@ QUESTIONS_BY_ID = {q["id"]: q for q in QUESTIONS}
 # ---------------------------------------------------------------- Configuración y Simulación en Memoria
 def config(env, name: str) -> str:
     if name == "NEON_CONNECTION_STRING":
-        return getattr(env, "DATABASE_URL", None) or getattr(env, name, None) or ""
-    return getattr(env, name, None) or ""
+        val = getattr(env, "DATABASE_URL", None) or getattr(env, name, None) or ""
+    else:
+        val = getattr(env, name, None) or ""
+    return str(val).strip().strip('"').strip("'")
 
 
 def simulado(env, name: str) -> bool:
@@ -659,6 +661,7 @@ _mem_users: dict[str, dict] = {
 # Pre-poblamos respuestas realistas de muestra en MODO_LOCAL para que las barras de porcentaje (%)
 # y el Leaderboard tengan datos estadísticos desde el primer segundo.
 _mem_responses: dict[tuple[str, str], dict] = {}
+_mem_clerk_user_ids: dict[str, str] = {}
 
 
 def _seed_local_responses():
@@ -718,21 +721,6 @@ def use_local_db(env) -> bool:
 _keys: dict = {}
 
 
-def _jwt_secret(env) -> str:
-    return config(env, "JWT_SECRET") or "quiz-redes2-fceqyn-secret-2026-key-32bytes!"
-
-
-def create_local_token(env, user_id: str, username: str, display_name: str) -> str:
-    payload = {
-        "sub": user_id,
-        "username": username,
-        "display_name": display_name,
-        "iss": "quiz-redes2-local",
-        "iat": int(time.time()),
-    }
-    return jwt.encode(payload, _jwt_secret(env), algorithm="HS256")
-
-
 async def _get_clerk_key(env, kid: str):
     if kid not in _keys:
         async with httpx.AsyncClient() as client:
@@ -756,7 +744,6 @@ async def current_user(
 
     header_dname = unquote(x_user_name).strip() if x_user_name else ""
     header_uname = unquote(x_user_username).strip() if x_user_username else ""
-
     if simulado(env, "CLERK_JWKS_URL"):
         uid = "usuario-local"
         uname = header_uname or "usuario-local"
@@ -780,19 +767,18 @@ async def current_user(
         raise HTTPException(401, "Token de Clerk inválido")
 
     sub = claims["sub"]
-    uname = header_uname or claims.get("username") or sub[-8:]
-    dname = header_dname or claims.get("name") or uname
-    return {"user_id": sub, "username": uname, "display_name": dname}
+    uname = claims.get("username") or header_uname or sub[-8:]
+    dname = claims.get("name") or header_dname or uname
+    return {
+        "user_id": sub,
+        "clerk_user_id": sub,
+        "username": uname,
+        "display_name": dname,
+    }
 
 
 # ---------------------------------------------------------------- Modelos Pydantic
-class RegisterBody(BaseModel):
-    username: str
-    display_name: str
-    password: str
-
-
-class LoginBody(BaseModel):
+class LegacyLinkBody(BaseModel):
     username: str
     password: str
 
@@ -803,26 +789,139 @@ class AnswerBody(BaseModel):
 
 
 # ---------------------------------------------------------------- Helpers de Datos (Local vs Neon)
-async def ensure_user_in_db(env, user: dict, password_hash: str = ""):
+async def ensure_user_in_db(env, user: dict):
     if use_local_db(env):
         if user["user_id"] not in _mem_users:
             _mem_users[user["user_id"]] = {
                 "user_id": user["user_id"],
                 "username": user["username"],
                 "display_name": user["display_name"],
-                "password_hash": password_hash,
+                "password_hash": "",
                 "created_at": _ahora(),
             }
         return
+    clerk_user_id = user.get("clerk_user_id")
+    if not clerk_user_id:
+        raise HTTPException(401, "Se requiere una identidad de Clerk")
+    rows = await neon_sql(
+        env,
+        "select user_id, username, display_name from quiz_users where clerk_user_id = $1",
+        [clerk_user_id],
+    )
+    if rows:
+        db_user = rows[0]
+        if user.get("display_name") and user["display_name"] not in ("Participante", db_user["display_name"]):
+            await neon_sql(
+                env,
+                "update quiz_users set display_name = $1 where user_id = $2",
+                [user["display_name"], db_user["user_id"]],
+            )
+            db_user["display_name"] = user["display_name"]
+        user.update(db_user)
+        user["clerk_user_id"] = clerk_user_id
+        return
+    uname = user["username"]
+    existing = await neon_sql(
+        env, "select user_id, clerk_user_id from quiz_users where username = $1", [uname]
+    )
+    if existing:
+        if existing[0].get("clerk_user_id"):
+            uname = f"{uname}_{clerk_user_id[-4:]}"
+            user["username"] = uname
+        else:
+            raise HTTPException(
+                409,
+                "Ya existe una cuenta con ese usuario. Vinculá tu cuenta anterior para recuperar tu progreso.",
+            )
+    internal_user_id = f"clerk:{clerk_user_id}"
     await neon_sql(
         env,
         """
-        insert into quiz_users (user_id, username, display_name, password_hash)
-        values ($1, $2, $3, $4)
+        insert into quiz_users (user_id, username, display_name, password_hash, clerk_user_id)
+        values ($1, $2, $3, '', $4)
         on conflict (user_id) do update set display_name = excluded.display_name
         """,
-        [user["user_id"], user["username"], user["display_name"], password_hash],
+        [internal_user_id, uname, user["display_name"], clerk_user_id],
     )
+    user["user_id"] = internal_user_id
+
+
+async def link_legacy_account(
+    env, clerk_user: dict, username: str, password: str
+) -> dict:
+    clerk_user_id = clerk_user.get("clerk_user_id")
+    if not clerk_user_id:
+        raise HTTPException(401, "Iniciá sesión con Clerk antes de vincular tu cuenta.")
+
+    uname = username.strip().lower()
+    password = password.strip()
+    if not uname or not password:
+        raise HTTPException(400, "Ingresá tu usuario y contraseña anteriores.")
+
+    if use_local_db(env):
+        legacy_user = next(
+            (u for u in _mem_users.values() if u["username"] == uname), None
+        )
+        if not legacy_user:
+            raise HTTPException(404, "No encontramos una cuenta anterior con ese usuario.")
+        if legacy_user.get("clerk_user_id") != clerk_user_id and not hmac.compare_digest(
+            str(legacy_user.get("password_hash", "")), _hash_pw(password)
+        ):
+            raise HTTPException(401, "El usuario o la contraseña anteriores no coinciden.")
+        existing_user_id = _mem_clerk_user_ids.get(clerk_user_id)
+        if existing_user_id and existing_user_id != legacy_user["user_id"]:
+            raise HTTPException(409, "Esta cuenta de Clerk ya está vinculada a otra cuenta.")
+        if legacy_user.get("clerk_user_id") not in (None, clerk_user_id):
+            raise HTTPException(409, "La cuenta anterior ya está vinculada a otra identidad.")
+        legacy_user["clerk_user_id"] = clerk_user_id
+        legacy_user["password_hash"] = None
+        _mem_clerk_user_ids[clerk_user_id] = legacy_user["user_id"]
+    else:
+        rows = await neon_sql(
+            env,
+            """
+            select user_id, username, display_name, password_hash, clerk_user_id
+            from quiz_users where username = $1
+            """,
+            [uname],
+        )
+        if not rows:
+            raise HTTPException(404, "No encontramos una cuenta anterior con ese usuario.")
+        legacy_user = rows[0]
+        if legacy_user.get("clerk_user_id") != clerk_user_id and not hmac.compare_digest(
+            str(legacy_user.get("password_hash") or ""), _hash_pw(password)
+        ):
+            raise HTTPException(401, "El usuario o la contraseña anteriores no coinciden.")
+        mapped = await neon_sql(
+            env,
+            "select user_id from quiz_users where clerk_user_id = $1",
+            [clerk_user_id],
+        )
+        if mapped and mapped[0]["user_id"] != legacy_user["user_id"]:
+            raise HTTPException(409, "Esta cuenta de Clerk ya está vinculada a otra cuenta.")
+        if legacy_user.get("clerk_user_id") not in (None, clerk_user_id):
+            raise HTTPException(409, "La cuenta anterior ya está vinculada a otra identidad.")
+        linked = await neon_sql(
+            env,
+            """
+            update quiz_users set clerk_user_id = $1, password_hash = null
+            where user_id = $2 and clerk_user_id is null
+            returning user_id
+            """,
+            [clerk_user_id, legacy_user["user_id"]],
+        )
+        if not linked and legacy_user.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(409, "No se pudo vincular la cuenta anterior.")
+
+    clerk_user.update(
+        {
+            "user_id": legacy_user["user_id"],
+            "clerk_user_id": clerk_user_id,
+            "username": legacy_user["username"],
+            "display_name": legacy_user["display_name"],
+        }
+    )
+    return clerk_user
 
 
 async def compute_all_question_stats(env) -> dict[str, dict]:
@@ -899,69 +998,27 @@ async def health():
 
 
 @app.post("/api/auth/register", status_code=201)
-async def register(body: RegisterBody, request: Request):
-    env = get_env(request)
-    uname = body.username.strip().lower()
-    dname = body.display_name.strip() or uname
-    pw = body.password.strip()
-
-    if len(uname) < 2 or len(pw) < 3:
-        raise HTTPException(400, "El usuario debe tener al menos 2 caracteres y la contraseña al menos 3.")
-
-    user_id = f"local:{uname}"
-    pw_hash = _hash_pw(pw)
-
-    if use_local_db(env):
-        if user_id in _mem_users:
-            raise HTTPException(409, "Ese nombre de usuario ya está registrado. Probá iniciar sesión.")
-        _mem_users[user_id] = {
-            "user_id": user_id,
-            "username": uname,
-            "display_name": dname,
-            "password_hash": pw_hash,
-            "created_at": _ahora(),
-        }
-    else:
-        existing = await neon_sql(env, "select user_id from quiz_users where username = $1", [uname])
-        if existing:
-            raise HTTPException(409, "Ese nombre de usuario ya está registrado. Probá iniciar sesión.")
-        await neon_sql(
-            env,
-            "insert into quiz_users (user_id, username, display_name, password_hash) values ($1, $2, $3, $4)",
-            [user_id, uname, dname, pw_hash],
-        )
-
-    token = create_local_token(env, user_id, uname, dname)
-    return {
-        "token": token,
-        "user": {"user_id": user_id, "username": uname, "display_name": dname},
-    }
+async def register():
+    raise HTTPException(410, "El registro ahora se realiza con Clerk.")
 
 
 @app.post("/api/auth/login")
-async def login(body: LoginBody, request: Request):
+async def login():
+    raise HTTPException(410, "El inicio de sesión ahora se realiza con Clerk.")
+
+
+@app.post("/api/auth/link-legacy")
+async def link_legacy(body: LegacyLinkBody, request: Request, user: dict = Depends(current_user)):
     env = get_env(request)
-    uname = body.username.strip().lower()
-    pw_hash = _hash_pw(body.password.strip())
-
-    if use_local_db(env):
-        user = _mem_users.get(f"local:{uname}")
-        if not user or user.get("password_hash") != pw_hash:
-            raise HTTPException(401, "Usuario o contraseña incorrectos.")
-        u_obj = {"user_id": user["user_id"], "username": user["username"], "display_name": user["display_name"]}
-    else:
-        rows = await neon_sql(
-            env,
-            "select user_id, username, display_name, password_hash from quiz_users where username = $1",
-            [uname],
-        )
-        if not rows or rows[0].get("password_hash") != pw_hash:
-            raise HTTPException(401, "Usuario o contraseña incorrectos.")
-        r0 = rows[0]
-        u_obj = {"user_id": r0["user_id"], "username": r0["username"], "display_name": r0["display_name"]}
-
-    token = create_local_token(env, u_obj["user_id"], u_obj["username"], u_obj["display_name"])
-    return {"token": token, "user": u_obj}
+    linked_user = await link_legacy_account(env, user, body.username, body.password)
+    return {
+        "linked": True,
+        "user": {
+            "user_id": linked_user["user_id"],
+            "username": linked_user["username"],
+            "display_name": linked_user["display_name"],
+        },
+    }
 
 
 @app.get("/api/me")

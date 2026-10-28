@@ -44,10 +44,11 @@ El front con solo `VITE_API_URL=http://localhost:8787` (sin clave de Clerk) ya u
 ## Conectar los servicios reales (de a uno, en `.dev.vars`)
 
 1. **Neon:** configurar `DATABASE_URL` en `.dev.vars` para desarrollo local o como secreto del Worker para producción. La app conserva compatibilidad con el nombre anterior `NEON_CONNECTION_STRING`.
-2. **Clerk:** crear una app y copiar la *Frontend API URL*. Completar `CLERK_ISSUER` y `CLERK_JWKS_URL`
-   en `.dev.vars` y también en `wrangler.jsonc` (para el deploy). En el front, cargar `VITE_CLERK_PUBLISHABLE_KEY`.
-   Para obtener un token de prueba, desde el front logueado, en la consola del navegador:
-   `await window.Clerk.session.getToken()`
+2. **Clerk:** la app existente está vinculada al proyecto seleccionado. En `frontend/`, ejecutar
+   `npx -y clerk@latest env pull` para obtener las claves de desarrollo en `.env.local`.
+   Para usar Clerk en el Worker local, copiar `CLERK_ISSUER` y `CLERK_JWKS_URL` desde `wrangler.jsonc`
+   a `.dev.vars`; dejarlas vacías conserva el modo demo. Las cuentas anteriores vinculan su historial
+   desde `/migrate` después de iniciar sesión con Clerk.
 3. **Resend:** crear una API key y pegarla en `RESEND_API_KEY`.
 
 ## Deploy

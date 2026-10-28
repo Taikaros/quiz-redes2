@@ -71,9 +71,16 @@ export type Api = {
   submitAnswer: (question_id: string, selected_option: number) => Promise<AnswerResponse>
   resetMyAnswers: () => Promise<{ ok: boolean }>
   leaderboard: () => Promise<LeaderboardEntry[]>
+  linkLegacyAccount: (username: string, password: string) => Promise<{
+    linked: boolean
+    user: UserProfile
+  }>
 }
 
-const API = (import.meta.env.VITE_API_URL as string | undefined)?.trim()?.replace(/\/+$/, '')
+const API = (
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
+  'https://quiz-redes2-api.kyasutora.workers.dev'
+).replace(/\/+$/, '')
 
 // ---------------------------------------------------------------- Banco de Preguntas para el Modo Demo (cuando no hay VITE_API_URL)
 const BASE_QUESTIONS: Omit<Question, 'stats'>[] = [
@@ -341,6 +348,9 @@ export function createApi(
         mockMyAnswers = {}
         return { ok: true }
       },
+      linkLegacyAccount: async () => {
+        throw new Error('Vincular una cuenta anterior requiere Clerk y la API configurada.')
+      },
       leaderboard: async () => {
         const answered_count = Object.keys(mockMyAnswers).length
         const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
@@ -431,6 +441,11 @@ export function createApi(
     resetMyAnswers: () =>
       call<{ ok: boolean }>('/api/reset-my-answers', {
         method: 'POST',
+      }),
+    linkLegacyAccount: (username, password) =>
+      call<{ linked: boolean; user: UserProfile }>('/api/auth/link-legacy', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
       }),
     leaderboard: () => call<LeaderboardEntry[]>('/api/leaderboard'),
   }

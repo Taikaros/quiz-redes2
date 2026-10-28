@@ -4,8 +4,14 @@ create table if not exists quiz_users (
   username text unique not null,
   display_name text not null,
   password_hash text,
+  clerk_user_id text,
   created_at timestamptz not null default now()
 );
+
+alter table quiz_users add column if not exists clerk_user_id text;
+create unique index if not exists quiz_users_clerk_user_id_idx
+  on quiz_users (clerk_user_id)
+  where clerk_user_id is not null;
 
 create table if not exists quiz_responses (
   id serial primary key,

@@ -9,10 +9,9 @@
     "logs": { "enabled": true }
   },
   "vars": {
-    // Dominio de tu app en Clerk (Frontend API URL, igual que en taller-jcsa-2026)
-    "CLERK_ISSUER": "https://suitable-halibut-4341.clerk.accounts.dev",
-    "CLERK_JWKS_URL": "https://suitable-halibut-4341.clerk.accounts.dev/.well-known/jwks.json"
+    // Development instance of the linked Clerk application.
+    "CLERK_ISSUER": "https://eminent-ocelot-2803.clerk.accounts.dev",
+    "CLERK_JWKS_URL": "https://eminent-ocelot-2803.clerk.accounts.dev/.well-known/jwks.json"
   }
-  // Secretos: NEON_CONNECTION_STRING
-  // -> uv run pywrangler secret put NEON_CONNECTION_STRING
+  // Keep DATABASE_URL in backend/.dev.vars for local development and as a Worker secret in production.
 }

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { AuthProvider } from './auth'
-import { Home, Layout, LeaderboardPage, QuizPage } from './pages'
+import { Home, Layout, LeaderboardPage, MigratePage, QuizPage } from './pages'
 import './styles.css'
 
 const rootRoute = createRootRoute({ component: Layout })
@@ -14,9 +14,14 @@ const leaderboardRoute = createRoute({
   path: '/leaderboard',
   component: LeaderboardPage,
 })
+const migrateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/migrate',
+  component: MigratePage,
+})
 
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, quizRoute, leaderboardRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, quizRoute, leaderboardRoute, migrateRoute]),
 })
 
 declare module '@tanstack/react-router' {

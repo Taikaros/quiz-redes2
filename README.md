@@ -17,12 +17,14 @@ Navegador ── React + TanStack + Clerk ──► Cloudflare Workers (quiz-red
 No necesitás dejar tu PC encendida ni construir desde tu equipo: Cloudflare construye y despliega tanto el **Frontend** como la **API Backend** automáticamente desde este repositorio de GitHub.
 
 ### Paso 1 · Base de datos en Neon (PostgreSQL)
-1. En [Neon](https://neon.tech), creá un proyecto, abrí el **SQL Editor** y ejecutá el contenido de [`backend/schema.sql`](./backend/schema.sql) (crea las tablas `quiz_users` y `quiz_responses`).
-2. Copiá tu `NEON_CONNECTION_STRING` (`postgresql://...`).
+1. El proyecto está vinculado a Neon. Desde la raíz, ejecutá `npx neon deploy` y `npx neon psql production -- -f backend/schema.sql`.
+2. La API usa `DATABASE_URL`; mantené el archivo generado `.env.local` privado.
 
 ### Paso 2 · Login en Clerk
-1. En [Clerk](https://clerk.com), copiá tu **Publishable Key** (`pk_test_...`) y tu **Frontend API URL** (`https://xxxx.clerk.accounts.dev`).
-2. En [`backend/wrangler.jsonc`](./backend/wrangler.jsonc) verificá que `CLERK_ISSUER` y `CLERK_JWKS_URL` tengan tu Frontend API URL (ya está preconfigurado `https://suitable-halibut-4341.clerk.accounts.dev`).
+1. La app ya está vinculada a la aplicación Clerk seleccionada. Desde `frontend/`, `npx -y clerk@latest env pull` restaura las claves de desarrollo en `.env.local`.
+2. El backend verifica los tokens con `CLERK_ISSUER` y `CLERK_JWKS_URL` de la instancia de desarrollo seleccionada, configurados en [`backend/wrangler.jsonc`](./backend/wrangler.jsonc).
+3. Las cuentas anteriores pueden iniciar sesión con Clerk y visitar `/migrate` para vincular su usuario y conservar el historial. La contraseña anterior solo verifica titularidad y se elimina del registro al completar la vinculación.
+4. No uses las claves de desarrollo en un despliegue de producción. Configurá las claves e issuer de producción solo después de preparar la instancia de producción en Clerk.
 
 ### Paso 3 · Desplegar el Backend (`quiz-redes2-api`) en Cloudflare
 Podés conectarlo directo a tu repo en Cloudflare (*Workers & Pages → Create → Import a repository → `Taikaros/quiz-redes2`*):
@@ -30,7 +32,7 @@ Podés conectarlo directo a tu repo en Cloudflare (*Workers & Pages → Create �
 - **Root directory (Path):** `backend`
 - **Build command:** *(dejar vacío)*
 - **Deploy command:** `uv run pywrangler deploy`
-- En **Settings → Variables and Secrets** del Worker `quiz-redes2-api`, agregá el secreto **`NEON_CONNECTION_STRING`**.
+- En **Settings → Variables and Secrets** del Worker `quiz-redes2-api`, agregá el secreto **`DATABASE_URL`** y las variables de instancia de Clerk de producción.
 
 ### Paso 4 · Desplegar el Frontend (`quiz-redes2-frontend`) en Cloudflare
 En Cloudflare (*Workers & Pages → Create → Import a repository → `Taikaros/quiz-redes2`*):

@@ -136,6 +136,95 @@ export function Home() {
   )
 }
 
+export function MigratePage() {
+  return (
+    <Gate>
+      <LegacyAccountMigration />
+    </Gate>
+  )
+}
+
+function LegacyAccountMigration() {
+  const getToken = useToken()
+  const userInfo = useParticipantInfo()
+  const api = useMemo(() => createApi(getToken, userInfo), [getToken, userInfo.displayName, userInfo.username])
+  const queryClient = useQueryClient()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const migration = useMutation({
+    mutationFn: () => api.linkLegacyAccount(username, password),
+    onSuccess: async () => {
+      setPassword('')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['me'] }),
+        queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
+      ])
+    },
+  })
+
+  return (
+    <div className="auth-wrapper">
+      <section className="auth-card">
+        <div className="auth-header">
+          <h2>Recuperá tu progreso anterior</h2>
+          <p>
+            Iniciá sesión con Clerk y vinculá tu cuenta anterior para conservar tus respuestas y puntaje.
+            La contraseña anterior solo verifica que sos titular de esa cuenta; no se copia a Clerk.
+          </p>
+        </div>
+        {migration.isSuccess ? (
+          <div>
+            <p className="text-success">
+              La cuenta de {migration.data.user.display_name} quedó vinculada. Tu progreso anterior se conserva.
+            </p>
+            <Link to="/quiz" className="btn-primary">
+              Volver al cuestionario
+            </Link>
+          </div>
+        ) : (
+          <form
+            className="auth-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              migration.mutate()
+            }}
+          >
+            <label className="field">
+              <span>Usuario anterior</span>
+              <input
+                autoComplete="username"
+                required
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Contraseña anterior</span>
+              <input
+                autoComplete="current-password"
+                required
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            {migration.isError && (
+              <p className="error-banner">
+                {migration.error instanceof Error
+                  ? migration.error.message
+                  : 'No se pudo vincular la cuenta. Intentá nuevamente.'}
+              </p>
+            )}
+            <button className="btn-primary" disabled={migration.isPending} type="submit">
+              {migration.isPending ? 'Vinculando…' : 'Vincular y conservar mi progreso'}
+            </button>
+          </form>
+        )}
+      </section>
+    </div>
+  )
+}
+
 export function QuizPage() {
   return (
     <Gate>
