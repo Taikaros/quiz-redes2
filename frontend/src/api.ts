@@ -1,3 +1,148 @@
+export type SubjectId = 'so' | 'redes2'
+
+export type SubjectTopic = {
+  code: string
+  title: string
+  detail: string
+}
+
+export type SubjectConfig = {
+  id: SubjectId
+  code: string
+  name: string
+  short_name: string
+  theme: 'green' | 'blue'
+  primary_color: string
+  course_id: number
+  exam_status: 'confirmed' | 'completed'
+  exam_badge: string
+  exam_title: string
+  exam_date: string
+  professors: string
+  schedule: string
+  description: string
+  topics: SubjectTopic[]
+  question_count?: number
+}
+
+export const SUBJECTS_CATALOG: Record<SubjectId, SubjectConfig> = {
+  so: {
+    id: 'so',
+    code: 'SO',
+    name: 'Sistemas Operativos',
+    short_name: 'Sistemas Operativos',
+    theme: 'green',
+    primary_color: '#059669',
+    course_id: 51,
+    exam_status: 'confirmed',
+    exam_badge: 'Examen Confirmado • Jueves 05/11/2026 — 10:00 h',
+    exam_title: '1er Parcial Práctico — Sistemas Operativos',
+    exam_date: '2026-11-05T10:00:00-03:00',
+    professors: 'Prof. Reg. Adj. Ing. Rubén Castaño • Aux. 1a Lic. Claudio Biale',
+    schedule: 'Teoría: Martes 14:00 a 16:00 h • Práctica: Jueves 10:00 a 12:00 h',
+    description:
+      'Preparcial interactivo sincronizado con el Aula Virtual FCEQyN (Curso #51). Incluye los 4 ejes prácticos confirmados en Avisos por el Prof. Claudio Biale para el parcial del jueves 05/11/2026.',
+    topics: [
+      {
+        code: 'TP 1 • Planificación de CPU',
+        title: 'Planificación de CPU',
+        detail: 'Criterios, algoritmos FCFS, SJF/SRTF, Prioridades, Round-Robin y Colas Multinivel',
+      },
+      {
+        code: 'TP 2 • Gestión de Procesos',
+        title: 'Gestión de Procesos',
+        detail: 'Estados, PCB, cambio de contexto, creación y terminación (fork, exec, wait), procesos zombi y huérfanos',
+      },
+      {
+        code: 'TP 2 • Señales y Tuberías',
+        title: 'Señales y Tuberías (Pipes)',
+        detail: 'Comunicación entre procesos (IPC), manejo de señales POSIX y tuberías en lenguaje C',
+      },
+      {
+        code: 'TP 3 • Interbloqueos',
+        title: 'Interbloqueos (Deadlocks)',
+        detail: 'Condiciones de Coffman, Grafo de Asignación de Recursos, prevención, detección y Algoritmo del Banquero',
+      },
+    ],
+  },
+  redes2: {
+    id: 'redes2',
+    code: 'R2',
+    name: 'Comunicaciones y Redes II',
+    short_name: 'Comunicaciones y Redes II',
+    theme: 'blue',
+    primary_color: '#1d4ed8',
+    course_id: 50,
+    exam_status: 'completed',
+    exam_badge: '1er Parcial Rendido • Jueves 29/10/2026 — Banco Activo',
+    exam_title: '1er Parcial Práctico — Capas 1 a 4 (TP 01 al TP 06 + Labs 01 al 04)',
+    exam_date: '2026-10-29T13:00:00-03:00',
+    professors: 'Cátedra Comunicaciones y Redes II — FCEQyN UNaM',
+    schedule: 'TP 01 al TP 06 y Laboratorios 01 al 04 (Capas 1 a 4 OSI)',
+    description:
+      'Banco colaborativo de 58 ejercicios de parcial con aprendizaje adaptativo (> 1 min), simulacro por pulls, multi-selección de temas y ranking en tiempo real.',
+    topics: [
+      {
+        code: 'TP 01 / Lab 01',
+        title: 'TP 01 / Lab 01: Dispositivos y Dimensionamiento',
+        detail: 'Dominios colisión/broadcast, Backplane Full-Duplex y Uplink 20:1',
+      },
+      {
+        code: 'Lab 02',
+        title: 'Lab 02: Cableado Estructurado TIA/EIA-568',
+        detail: 'Cableado Estructurado ANSI/TIA/EIA-568, T568A/B y enlace de 100 m',
+      },
+      {
+        code: 'TP 03 / Lab 03',
+        title: 'TP 03 / Lab 03: Ethernet, VLANs (802.1Q) y STP',
+        detail: 'Trama 802.3, VLAN 802.1Q, STP 802.1D vs RSTP 802.1w, PoE e IOS CLI',
+      },
+      {
+        code: 'TP 04 / Lab 04',
+        title: 'TP 04 / Lab 04: Fibra Óptica, OTDR y GPON',
+        detail: 'Fibra SMF vs MMF, GPON (WDM/TDMA/DBA), Fusión, OTDR y ORL',
+      },
+      {
+        code: 'TP 05',
+        title: 'TP 05: Redes Inalámbricas IEEE 802.11 (Wi-Fi)',
+        detail: 'Wi-Fi 6E/7 (ENACOM 756/2023), Canales, DFS, Cálculo CWNP y Espectro RF',
+      },
+      {
+        code: 'TP 06',
+        title: 'TP 06: IPv4, Encapsulamiento y Fragmentación',
+        detail: 'IPv4, Encapsulamiento VoIP/RTP/UDP, Cabecera IP, TTL, ICMP y Wireshark',
+      },
+    ],
+  },
+}
+
+export const OTHER_ENROLLED_COURSES = [
+  {
+    course_id: 251,
+    code: 'IS3',
+    name: 'Ingeniería de Software III - Actualidad Informática',
+    status: 'Cursando en Aula Virtual • Sin fecha de parcial confirmada',
+  },
+  {
+    course_id: 47,
+    code: 'SI',
+    name: 'Sistemas de Información',
+    status: 'Cursando en Aula Virtual • Sin fecha de parcial confirmada',
+  },
+  {
+    course_id: 921,
+    code: 'AC',
+    name: 'Arquitectura de Computadoras (ASC Posadas)',
+    status: 'Cursando en Aula Virtual • Sin fecha de parcial confirmada',
+  },
+  {
+    course_id: 474,
+    code: 'POO2',
+    name: 'Programación Orientada a Objetos II',
+    status: 'Cursando en Aula Virtual • Sin fecha de parcial confirmada',
+  },
+]
+
 export type QuestionStats = {
   total_responses: number
   correct_responses: number
@@ -8,6 +153,7 @@ export type QuestionStats = {
 
 export type Question = {
   id: string
+  subject?: SubjectId
   unit: string
   style?: string
   question: string
@@ -33,6 +179,7 @@ export type UserAnswerRecord = {
 
 export type MeResponse = {
   user: UserProfile
+  subject?: string
   answered_count: number
   correct_count: number
   score: number
@@ -42,6 +189,7 @@ export type MeResponse = {
 
 export type AnswerResponse = {
   question_id: string
+  subject?: string
   selected_option: number
   is_correct: boolean
   correct_option: number
@@ -71,11 +219,12 @@ export type LeaderboardEntry = {
 }
 
 export type Api = {
-  me: () => Promise<MeResponse>
-  questions: () => Promise<Question[]>
+  subjects: () => Promise<SubjectConfig[]>
+  me: (subject?: SubjectId) => Promise<MeResponse>
+  questions: (subject?: SubjectId) => Promise<Question[]>
   submitAnswer: (question_id: string, selected_option: number, response_time_ms?: number) => Promise<AnswerResponse>
-  resetMyAnswers: () => Promise<{ ok: boolean }>
-  leaderboard: () => Promise<LeaderboardEntry[]>
+  resetMyAnswers: (subject?: SubjectId) => Promise<{ ok: boolean }>
+  leaderboard: (subject?: SubjectId) => Promise<LeaderboardEntry[]>
   linkLegacyAccount: (username: string, password: string) => Promise<{
     linked: boolean
     user: UserProfile
@@ -293,29 +442,38 @@ export function createApi(
   userInfo: { displayName: string; username: string } = { displayName: 'Participante', username: 'user' },
 ): Api {
   if (!API) {
-    // API simulada en el navegador si todavía no se configuró VITE_API_URL (igual que en taller-jcsa-2026)
+    // API simulada en el navegador si todavía no se configuró VITE_API_URL
     return {
-      me: async () => {
-        const answered_count = Object.keys(mockMyAnswers).length
-        const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
+      subjects: async () => [
+        { ...SUBJECTS_CATALOG.so, question_count: 0 },
+        { ...SUBJECTS_CATALOG.redes2, question_count: BASE_QUESTIONS.length },
+      ],
+      me: async (subject = 'redes2') => {
+        const answers = subject === 'so' ? {} : { ...mockMyAnswers }
+        const answered_count = Object.keys(answers).length
+        const correct_count = Object.values(answers).filter((a) => a.is_correct).length
         return {
           user: {
             user_id: `demo:${userInfo.username}`,
             username: userInfo.username,
             display_name: userInfo.displayName,
           },
+          subject,
           answered_count,
           correct_count,
           score: correct_count * 10,
           accuracy_pct: answered_count > 0 ? Math.round((correct_count / answered_count) * 1000) / 10 : 0,
-          answers: { ...mockMyAnswers },
+          answers,
         }
       },
-      questions: async () =>
-        BASE_QUESTIONS.map((q) => ({
-          ...q,
-          stats: buildMockStats(q.id, q.correct),
-        })),
+      questions: async (subject = 'redes2') =>
+        subject === 'so'
+          ? []
+          : BASE_QUESTIONS.map((q) => ({
+              ...q,
+              subject: 'redes2' as SubjectId,
+              stats: buildMockStats(q.id, q.correct),
+            })),
       submitAnswer: async (question_id, selected_option, response_time_ms = 0) => {
         const q = BASE_QUESTIONS.find((x) => x.id === question_id)!
         const prev = mockMyAnswers[question_id]
@@ -335,6 +493,7 @@ export function createApi(
         const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
         return {
           question_id,
+          subject: 'redes2',
           selected_option,
           is_correct,
           correct_option: q.correct,
@@ -357,7 +516,8 @@ export function createApi(
       linkLegacyAccount: async () => {
         throw new Error('Vincular una cuenta anterior requiere Clerk y la API configurada.')
       },
-      leaderboard: async () => {
+      leaderboard: async (subject = 'redes2') => {
+        if (subject === 'so') return []
         const answered_count = Object.keys(mockMyAnswers).length
         const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
         const list: LeaderboardEntry[] = [
@@ -431,9 +591,12 @@ export function createApi(
     return (res.status === 204 ? undefined : await res.json()) as T
   }
 
+  const qs = (subject?: SubjectId) => (subject ? `?subject=${encodeURIComponent(subject)}` : '')
+
   return {
-    me: () => call<MeResponse>('/api/me'),
-    questions: () => call<Question[]>('/api/questions'),
+    subjects: () => call<SubjectConfig[]>('/api/subjects'),
+    me: (subject) => call<MeResponse>(`/api/me${qs(subject)}`),
+    questions: (subject) => call<Question[]>(`/api/questions${qs(subject)}`),
     submitAnswer: (question_id, selected_option, response_time_ms = 0) =>
       call<AnswerResponse>('/api/answer', {
         method: 'POST',
@@ -445,8 +608,8 @@ export function createApi(
           username: userInfo.username,
         }),
       }),
-    resetMyAnswers: () =>
-      call<{ ok: boolean }>('/api/reset-my-answers', {
+    resetMyAnswers: (subject) =>
+      call<{ ok: boolean }>(`/api/reset-my-answers${qs(subject)}`, {
         method: 'POST',
       }),
     linkLegacyAccount: (username, password) =>
@@ -454,6 +617,6 @@ export function createApi(
         method: 'POST',
         body: JSON.stringify({ username, password }),
       }),
-    leaderboard: () => call<LeaderboardEntry[]>('/api/leaderboard'),
+    leaderboard: (subject) => call<LeaderboardEntry[]>(`/api/leaderboard${qs(subject)}`),
   }
 }

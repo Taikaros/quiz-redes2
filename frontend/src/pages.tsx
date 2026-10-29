@@ -1,15 +1,40 @@
-import { Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { Link, Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Gate, UserMenu, useParticipantInfo, useToken } from './auth'
-import { createApi, type Question, type UserAnswerRecord } from './api'
+import {
+  createApi,
+  OTHER_ENROLLED_COURSES,
+  SUBJECTS_CATALOG,
+  type Question,
+  type SubjectConfig,
+  type SubjectId,
+  type UserAnswerRecord,
+} from './api'
 
 export type QuizMode = 'pool' | 'topics' | 'all'
 
+const ACTIVE_SUBJECT_STORAGE_KEY = 'fceqyn_active_subject'
 const QUIZ_MODE_STORAGE_KEY = 'redes2_quiz_mode'
 const QUIZ_TOPICS_STORAGE_KEY = 'redes2_quiz_selected_units'
 const ADAPTIVE_STORAGE_PREFIX = 'redes2_adaptive_profile_v3_'
 const SLOW_RESPONSE_MS = 60000 // > 1 minuto (60s) dispara refuerzo de preguntas del mismo estilo
+
+type SubjectContextValue = {
+  subjectId: SubjectId
+  subject: SubjectConfig
+  setSubjectId: (id: SubjectId) => void
+}
+
+const SubjectContext = createContext<SubjectContextValue>({
+  subjectId: 'so',
+  subject: SUBJECTS_CATALOG.so,
+  setSubjectId: () => {},
+})
+
+export function useActiveSubject() {
+  return useContext(SubjectContext)
+}
 
 type AdaptiveQuestionStat = {
   wrongCount: number
@@ -41,64 +66,368 @@ function weightedRandomSample(items: Question[], weights: number[], k: number): 
 }
 
 export function Layout() {
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="topbar-inner">
-          <Link to="/" className="brand-link">
-            <span className="brand-logo">R2</span>
-            <div>
-              <strong>Comunicaciones y Redes II</strong>
-              <small>Entrenador 1er Parcial • FCEQyN - UNaM</small>
-            </div>
-          </Link>
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [subjectId, setSubjectIdState] = useState<SubjectId>(() => {
+    try {
+      const saved = localStorage.getItem(ACTIVE_SUBJECT_STORAGE_KEY)
+      if (saved === 'so' || saved === 'redes2') return saved
+    } catch {
+      // ignore
+    }
+    return 'so'
+  })
 
-          <nav className="main-nav">
-            <Link to="/" activeProps={{ className: 'nav-item active' }} inactiveProps={{ className: 'nav-item' }}>
-              Inicio
-            </Link>
-            <Link to="/quiz" activeProps={{ className: 'nav-item active' }} inactiveProps={{ className: 'nav-item' }}>
-              Cuestionario
-            </Link>
-            <Link
-              to="/leaderboard"
-              activeProps={{ className: 'nav-item active' }}
-              inactiveProps={{ className: 'nav-item' }}
+  const setSubjectId = (nextId: SubjectId) => {
+    setSubjectIdState(nextId)
+    try {
+      localStorage.setItem(ACTIVE_SUBJECT_STORAGE_KEY, nextId)
+    } catch {
+      // ignore
+    }
+  }
+
+  // Sincronizar con la URL si el usuario entra directamente a /materia/so o /materia/redes2
+  useEffect(() => {
+    const m = location.pathname.match(/^\/materia\/(so|redes2)/)
+    if (m && (m[1] === 'so' || m[1] === 'redes2') && m[1] !== subjectId) {
+      setSubjectId(m[1])
+    }
+  }, [location.pathname, subjectId])
+
+  const subject = SUBJECTS_CATALOG[subjectId] ?? SUBJECTS_CATALOG.so
+  const isLanding = location.pathname === '/'
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-subject-theme', subject.theme)
+  }, [subject.theme])
+
+  return (
+    <SubjectContext.Provider value={{ subjectId, subject, setSubjectId }}>
+      <div className="app-shell" data-subject-theme={subject.theme}>
+        <header className="topbar">
+          <div className="topbar-inner">
+            <div className="topbar-left-group">
+              <Link to="/" className="brand-link">
+                <span className="brand-logo">{isLanding ? 'UNaM' : subject.code}</span>
+                <div>
+                  <strong>{isLanding ? 'Portal de Preparciales FCEQyN' : subject.name}</strong>
+                  <small>
+                    {isLanding
+                      ? 'Materias con Examen • Sincronizado con Aula Virtual'
+                      : `${subject.exam_badge}`}
+                  </small>
+                </div>
+              </Link>
+
+              {/* Selector rápido de Materia con su color distintivo */}
+              <div className="subject-switcher-bar" role="group" aria-label="Selector de Materia">
+                <button
+                  type="button"
+                  className={
+                    subjectId === 'so' ? 'subject-switch-pill pill-green active' : 'subject-switch-pill pill-green'
+                  }
+                  onClick={() => {
+                    setSubjectId('so')
+                    if (isLanding || location.pathname.startsWith('/materia/')) {
+                      void navigate({ to: '/materia/$subjectId', params: { subjectId: 'so' } })
+                    }
+                  }}
+                >
+                  <span className="dot-indicator dot-green" />
+                  Sistemas Operativos
+                </button>
+                <button
+                  type="button"
+                  className={
+                    subjectId === 'redes2' ? 'subject-switch-pill pill-blue active' : 'subject-switch-pill pill-blue'
+                  }
+                  onClick={() => {
+                    setSubjectId('redes2')
+                    if (isLanding || location.pathname.startsWith('/materia/')) {
+                      void navigate({ to: '/materia/$subjectId', params: { subjectId: 'redes2' } })
+                    }
+                  }}
+                >
+                  <span className="dot-indicator dot-blue" />
+                  Redes II
+                </button>
+              </div>
+            </div>
+
+            <nav className="main-nav">
+              <Link to="/" activeProps={{ className: 'nav-item active' }} inactiveProps={{ className: 'nav-item' }}>
+                Materias
+              </Link>
+              <Link
+                to="/materia/$subjectId"
+                params={{ subjectId }}
+                activeProps={{ className: 'nav-item active' }}
+                inactiveProps={{ className: 'nav-item' }}
+              >
+                Inicio {subject.code}
+              </Link>
+              <Link to="/quiz" activeProps={{ className: 'nav-item active' }} inactiveProps={{ className: 'nav-item' }}>
+                Preparcial / Quiz
+              </Link>
+              <Link
+                to="/leaderboard"
+                activeProps={{ className: 'nav-item active' }}
+                inactiveProps={{ className: 'nav-item' }}
+              >
+                Leaderboard
+              </Link>
+              <UserMenu />
+            </nav>
+          </div>
+        </header>
+
+        <main className="main-container">
+          <Outlet />
+        </main>
+      </div>
+    </SubjectContext.Provider>
+  )
+}
+
+export function LandingPage() {
+  const navigate = useNavigate()
+  const { setSubjectId } = useActiveSubject()
+  const getToken = useToken()
+  const api = useMemo(() => createApi(getToken), [getToken])
+
+  const subjectsQuery = useQuery({
+    queryKey: ['subjects'],
+    queryFn: api.subjects,
+  })
+
+  const soInfo =
+    subjectsQuery.data?.find((s) => s.id === 'so') ?? {
+      ...SUBJECTS_CATALOG.so,
+      question_count: 0,
+    }
+  const redesInfo =
+    subjectsQuery.data?.find((s) => s.id === 'redes2') ?? {
+      ...SUBJECTS_CATALOG.redes2,
+      question_count: 58,
+    }
+
+  const openSubject = (id: SubjectId, dest: 'home' | 'quiz' | 'leaderboard' = 'home') => {
+    setSubjectId(id)
+    if (dest === 'quiz') {
+      void navigate({ to: '/quiz' })
+    } else if (dest === 'leaderboard') {
+      void navigate({ to: '/leaderboard' })
+    } else {
+      void navigate({ to: '/materia/$subjectId', params: { subjectId: id } })
+    }
+  }
+
+  return (
+    <div className="landing-wrapper">
+      <section className="landing-hero">
+        <div className="landing-hero-badges">
+          <span className="landing-badge-sync">📡 Sincronizado con Aula Virtual FCEQyN (Moodle)</span>
+          <span className="landing-badge-exam">📅 Próximo Examen Confirmado: Sistemas Operativos (05/11/2026)</span>
+        </div>
+        <h1>Portal de Preparciales y Simulacros por Materia</h1>
+        <p className="landing-lead">
+          Seleccioná la materia que querés preparar. Cada asignatura cambia dinámicamente la paleta visual de la plataforma (
+          <strong className="text-green-highlight">Verde para Sistemas Operativos</strong> y{' '}
+          <strong className="text-blue-highlight">Azul para Comunicaciones y Redes II</strong>) y mantiene su propio banco de ejercicios, pulls adaptativos y tabla de posiciones.
+        </p>
+      </section>
+
+      <section className="landing-subjects-grid">
+        {/* TARJETA 1: SISTEMAS OPERATIVOS (VERDE) - EXAMEN CONFIRMADO */}
+        <article className="subject-card subject-card-green">
+          <div className="subject-card-top">
+            <div className="subject-identity">
+              <span className="subject-avatar avatar-green">SO</span>
+              <div>
+                <span className="subject-status-pill status-confirmed">
+                  🟢 EXAMEN CONFIRMADO • Jueves 05/11/2026 — 10:00 h
+                </span>
+                <h2>{soInfo.name}</h2>
+                <small>{soInfo.professors}</small>
+              </div>
+            </div>
+            <span className="theme-tag tag-green">Tema Verde</span>
+          </div>
+
+          <p className="subject-description">{soInfo.description}</p>
+
+          <div className="subject-meta-box meta-green">
+            <div>
+              <strong>Modalidad confirmada en Avisos (Aula Virtual #51):</strong>
+              <span>1er Parcial Práctico • Jueves 05 de Noviembre 10:00 hs (Semana 10)</span>
+            </div>
+            <div>
+              <strong>Horarios de cátedra:</strong>
+              <span>{soInfo.schedule}</span>
+            </div>
+          </div>
+
+          <div className="subject-topics-preview">
+            <h4>Temas confirmados para el 1er Parcial Práctico:</h4>
+            <div className="subject-topics-chips">
+              {soInfo.topics.map((t) => (
+                <div key={t.code} className="subject-topic-item item-green">
+                  <strong>{t.code}</strong>
+                  <span>{t.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="subject-card-actions">
+            <button
+              type="button"
+              className="btn-subject-green"
+              onClick={() => openSubject('so', 'home')}
+            >
+              Entrar a Sistemas Operativos →
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => openSubject('so', 'quiz')}
+            >
+              Ir a Ejercicios de Preparcial ({soInfo.question_count ?? 0})
+            </button>
+          </div>
+        </article>
+
+        {/* TARJETA 2: COMUNICACIONES Y REDES II (AZUL) */}
+        <article className="subject-card subject-card-blue">
+          <div className="subject-card-top">
+            <div className="subject-identity">
+              <span className="subject-avatar avatar-blue">R2</span>
+              <div>
+                <span className="subject-status-pill status-completed">
+                  🔵 PARCIAL RENDIDO • 29/10/2026 — {redesInfo.question_count ?? 58} ejercicios activos
+                </span>
+                <h2>{redesInfo.name}</h2>
+                <small>{redesInfo.professors}</small>
+              </div>
+            </div>
+            <span className="theme-tag tag-blue">Tema Azul</span>
+          </div>
+
+          <p className="subject-description">{redesInfo.description}</p>
+
+          <div className="subject-meta-box meta-blue">
+            <div>
+              <strong>Alcance del Banco Oficial (Curso #50):</strong>
+              <span>{redesInfo.exam_title}</span>
+            </div>
+            <div>
+              <strong>Funcionalidades activas:</strong>
+              <span>Pull Aleatorio Adaptativo (&gt; 1 min), Multi-selección por TP/Lab y Leaderboard</span>
+            </div>
+          </div>
+
+          <div className="subject-topics-preview">
+            <h4>Unidades y Laboratorios incluidos ({redesInfo.question_count ?? 58} preguntas):</h4>
+            <div className="subject-topics-chips">
+              {redesInfo.topics.map((t) => (
+                <div key={t.code} className="subject-topic-item item-blue">
+                  <strong>{t.code}</strong>
+                  <span>{t.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="subject-card-actions">
+            <button
+              type="button"
+              className="btn-subject-blue"
+              onClick={() => openSubject('redes2', 'home')}
+            >
+              Entrar a Redes II →
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => openSubject('redes2', 'quiz')}
+            >
+              Practicar Cuestionario ({redesInfo.question_count ?? 58})
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => openSubject('redes2', 'leaderboard')}
             >
               Leaderboard
-            </Link>
-            <UserMenu />
-          </nav>
-        </div>
-      </header>
+            </button>
+          </div>
+        </article>
+      </section>
 
-      <main className="main-container">
-        <Outlet />
-      </main>
+      {/* OTRAS MATERIAS DETECTADAS EN EL AULA VIRTUAL */}
+      <section className="panel-card other-courses-section">
+        <div className="card-header-row">
+          <div>
+            <h3>Otras materias cursadas en el Aula Virtual (Moodle FCEQyN)</h3>
+            <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '13px' }}>
+              Detectadas automáticamente mediante MCP. Por el momento no registran fecha de examen parcial confirmada.
+            </p>
+          </div>
+        </div>
+        <div className="other-courses-grid">
+          {OTHER_ENROLLED_COURSES.map((c) => (
+            <div key={c.course_id} className="other-course-card">
+              <span className="other-course-badge">{c.code}</span>
+              <div>
+                <strong>{c.name}</strong>
+                <small>{c.status}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
 
 export function Home() {
   const navigate = useNavigate()
+  const params = useParams({ strict: false }) as { subjectId?: string }
+  const { subjectId, subject, setSubjectId } = useActiveSubject()
+
+  useEffect(() => {
+    if (params.subjectId === 'so' || params.subjectId === 'redes2') {
+      if (params.subjectId !== subjectId) {
+        setSubjectId(params.subjectId)
+      }
+    }
+  }, [params.subjectId, subjectId, setSubjectId])
+
+  const activeId: SubjectId =
+    params.subjectId === 'so' || params.subjectId === 'redes2' ? params.subjectId : subjectId
+  const currentSubject = SUBJECTS_CATALOG[activeId] ?? subject
+
   const getToken = useToken()
   const api = useMemo(() => createApi(getToken), [getToken])
   const board = useQuery({
-    queryKey: ['leaderboard'],
-    queryFn: api.leaderboard,
+    queryKey: ['leaderboard', activeId],
+    queryFn: () => api.leaderboard(activeId),
     refetchInterval: 8000,
   })
   const questions = useQuery({
-    queryKey: ['questions'],
-    queryFn: api.questions,
+    queryKey: ['questions', activeId],
+    queryFn: () => api.questions(activeId),
   })
 
-  const totalQ = questions.data?.length ?? 58
+  const totalQ = questions.data?.length ?? (activeId === 'redes2' ? 58 : 0)
 
   const goToQuizMode = (mode: QuizMode, preselectedUnits?: string[]) => {
     try {
+      localStorage.setItem(`${QUIZ_MODE_STORAGE_KEY}_${activeId}`, mode)
       localStorage.setItem(QUIZ_MODE_STORAGE_KEY, mode)
       if (preselectedUnits && preselectedUnits.length > 0) {
+        localStorage.setItem(`${QUIZ_TOPICS_STORAGE_KEY}_${activeId}`, JSON.stringify(preselectedUnits))
         localStorage.setItem(QUIZ_TOPICS_STORAGE_KEY, JSON.stringify(preselectedUnits))
       }
     } catch {
@@ -110,15 +439,31 @@ export function Home() {
   return (
     <div className="home-grid">
       <section className="hero-card">
-        <span className="pill-badge">Parcial Práctico • Jueves 29/10 — 13:00 h</span>
-        <h1>Plataforma Colaborativa de Práctica y Ranking</h1>
-        <p className="hero-lead">
-          Practicá con los ejercicios, cálculos y casos reales de los{' '}
-          <strong>TP 01 al TP 06 y Laboratorios 01 al 04</strong>. Elegí entre un{' '}
-          <strong>Pull aleatorio tipo simulacro</strong>, un{' '}
-          <strong>cuestionario combinando múltiples temas</strong> o el{' '}
-          <strong>banco completo con todas las preguntas</strong>.
-        </p>
+        <div className="subject-breadcrumb-row">
+          <Link to="/" className="back-to-portal-link">
+            ← Volver al Portal de Materias
+          </Link>
+          <span className="pill-badge">{currentSubject.exam_badge}</span>
+        </div>
+
+        <h1>{currentSubject.name} — Preparcial y Simulacro</h1>
+        <p className="hero-lead">{currentSubject.description}</p>
+
+        {activeId === 'so' && totalQ === 0 && (
+          <div className="so-ready-banner">
+            <div className="so-ready-header">
+              <span className="so-ready-icon">🟢</span>
+              <div>
+                <strong>Entorno de Sistemas Operativos (Tema Verde) Configurado y Sincronizado</strong>
+                <p>
+                  Se verificó en el Aula Virtual (Curso #51) el aviso del <strong>Prof. Claudio Omar Biale</strong> confirmando el{' '}
+                  <strong>1er Parcial Práctico para el Jueves 05/11/2026 a las 10:00 h</strong> sobre:{' '}
+                  <em>Gestión de Procesos, Planificación de CPU, Señales y Tuberías e Interbloqueos</em>. Listo para incorporar los ejercicios de preparcial que indiques.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mode-cards-home">
           <button
@@ -128,8 +473,8 @@ export function Home() {
           >
             <span className="home-mode-icon">🎲</span>
             <div>
-              <strong>Pull de Preguntas (Simulacro)</strong>
-              <span>Tiradas aleatorias de 10, 15 o 20 preguntas como el cuestionario inicial</span>
+              <strong>Pull de Ejercicios (Simulacro)</strong>
+              <span>Tiradas aleatorias adaptativas priorizando errores y demoras (&gt; 1 min)</span>
             </div>
           </button>
 
@@ -140,8 +485,8 @@ export function Home() {
           >
             <span className="home-mode-icon">📚</span>
             <div>
-              <strong>Cuestionario por Temas (Multi-selección)</strong>
-              <span>Seleccioná uno o varios TPs / Laboratorios a la vez para practicar a medida</span>
+              <strong>Práctica por Temas (Multi-selección)</strong>
+              <span>Seleccioná uno o varios temas de {currentSubject.short_name} a la vez</span>
             </div>
           </button>
 
@@ -152,82 +497,53 @@ export function Home() {
           >
             <span className="home-mode-icon">📋</span>
             <div>
-              <strong>Cuestionario Completo ({totalQ} preguntas)</strong>
-              <span>Todas las preguntas oficiales del temario de principio a fin</span>
+              <strong>Banco Completo ({totalQ} ejercicios)</strong>
+              <span>Todos los ejercicios oficiales de {currentSubject.short_name} de principio a fin</span>
             </div>
           </button>
         </div>
 
         <div className="hero-actions">
           <Link to="/quiz" className="btn-primary">
-            Abrir Cuestionario Ahora
+            Abrir Preparcial de {currentSubject.short_name}
           </Link>
           <Link to="/leaderboard" className="btn-secondary">
-            Ver Tabla de Posiciones (Leaderboard)
+            Ver Leaderboard de {currentSubject.short_name}
+          </Link>
+          <Link to="/" className="btn-ghost">
+            Cambiar de Materia
           </Link>
         </div>
 
         <div className="topics-grid">
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['TP 01 / Lab 01: Dispositivos y Dimensionamiento'])}
-          >
-            <strong>TP 01 / Lab 01</strong>
-            <span>Dominios colisión/broadcast, Backplane Full-Duplex y Uplink 20:1</span>
-          </button>
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['Lab 02: Cableado Estructurado TIA/EIA-568'])}
-          >
-            <strong>Lab 02</strong>
-            <span>Cableado Estructurado ANSI/TIA/EIA-568, T568A/B y enlace de 100 m</span>
-          </button>
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['TP 03 / Lab 03: Ethernet, VLANs (802.1Q) y STP'])}
-          >
-            <strong>TP 03 / Lab 03</strong>
-            <span>Trama 802.3, VLAN 802.1Q, STP 802.1D vs RSTP 802.1w, PoE e IOS CLI</span>
-          </button>
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['TP 04 / Lab 04: Fibra Óptica, OTDR y GPON'])}
-          >
-            <strong>TP 04 / Lab 04</strong>
-            <span>Fibra SMF vs MMF, GPON (WDM/TDMA/DBA), Fusión, OTDR y ORL</span>
-          </button>
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['TP 05: Redes Inalámbricas IEEE 802.11 (Wi-Fi)'])}
-          >
-            <strong>TP 05</strong>
-            <span>Wi-Fi 6E/7 (ENACOM 756/2023), Canales, DFS, Cálculo CWNP y Espectro RF</span>
-          </button>
-          <button
-            type="button"
-            className="topic-chip topic-chip-btn"
-            onClick={() => goToQuizMode('topics', ['TP 06: IPv4, Encapsulamiento y Fragmentación'])}
-          >
-            <strong>TP 06</strong>
-            <span>IPv4, Encapsulamiento VoIP/RTP/UDP, Cabecera IP, TTL, ICMP y Wireshark</span>
-          </button>
+          {currentSubject.topics.map((topic) => (
+            <button
+              key={topic.code}
+              type="button"
+              className="topic-chip topic-chip-btn"
+              onClick={() => goToQuizMode('topics', [topic.title])}
+            >
+              <strong>{topic.code}</strong>
+              <span>{topic.detail}</span>
+            </button>
+          ))}
         </div>
       </section>
 
       <aside className="side-card">
         <div className="card-header-row">
-          <h2>Top Participantes en Vivo</h2>
+          <h2>Ranking — {currentSubject.code}</h2>
           <Link to="/leaderboard" className="text-link">
             Ver todos
           </Link>
         </div>
         {board.isLoading && <p className="muted">Cargando posiciones…</p>}
         {board.isError && <p className="error-text">Error al conectar con la API</p>}
+        {!board.isLoading && (board.data?.length ?? 0) === 0 && (
+          <p className="muted" style={{ fontSize: '13px' }}>
+            Aún no hay intentos registrados en <strong>{currentSubject.name}</strong>.
+          </p>
+        )}
         <div className="mini-board">
           {board.data?.slice(0, 6).map((row) => (
             <div key={row.user_id} className="mini-board-row">
@@ -345,6 +661,7 @@ export function QuizPage() {
 }
 
 function QuizWorkspace() {
+  const { subjectId, subject } = useActiveSubject()
   const getToken = useToken()
   const userInfo = useParticipantInfo()
   const api = useMemo(
@@ -355,7 +672,9 @@ function QuizWorkspace() {
 
   const [quizMode, setQuizMode] = useState<QuizMode>(() => {
     try {
-      const saved = localStorage.getItem(QUIZ_MODE_STORAGE_KEY)
+      const saved =
+        localStorage.getItem(`${QUIZ_MODE_STORAGE_KEY}_${subjectId}`) ??
+        localStorage.getItem(QUIZ_MODE_STORAGE_KEY)
       if (saved === 'pool' || saved === 'topics' || saved === 'all') return saved
     } catch {
       // ignore
@@ -365,7 +684,9 @@ function QuizWorkspace() {
 
   const [selectedUnits, setSelectedUnits] = useState<string[]>(() => {
     try {
-      const raw = localStorage.getItem(QUIZ_TOPICS_STORAGE_KEY)
+      const raw =
+        localStorage.getItem(`${QUIZ_TOPICS_STORAGE_KEY}_${subjectId}`) ??
+        localStorage.getItem(QUIZ_TOPICS_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) return parsed
@@ -389,11 +710,11 @@ function QuizWorkspace() {
   // Respuestas emitidas dentro del Pull actual (permite volver a practicar preguntas en un nuevo Pull)
   const [pullSessionAnswers, setPullSessionAnswers] = useState<Record<string, UserAnswerRecord>>({})
 
-  // Cronómetro de tiempo de respuesta por pregunta (umbral > 5 segundos = 5000 ms)
+  // Cronómetro de tiempo de respuesta por pregunta (umbral > 1 minuto = 60000 ms)
   const questionStartRef = useRef<number>(performance.now())
   const [elapsedMs, setElapsedMs] = useState<number>(0)
 
-  const adaptiveKey = `${ADAPTIVE_STORAGE_PREFIX}${userInfo.username || 'anon'}`
+  const adaptiveKey = `${ADAPTIVE_STORAGE_PREFIX}${subjectId}_${userInfo.username || 'anon'}`
   const [adaptiveProfile, setAdaptiveProfile] = useState<Record<string, AdaptiveQuestionStat>>(() => {
     try {
       const raw = localStorage.getItem(adaptiveKey)
@@ -404,27 +725,40 @@ function QuizWorkspace() {
     return {}
   })
 
+  // Al cambiar de materia (ej. de Redes II a Sistemas Operativos), reiniciar selección de pull/unidades
+  useEffect(() => {
+    setPoolQuestionIds([])
+    setPullSessionAnswers({})
+    setCurrentIndex(0)
+    try {
+      const rawUnits = localStorage.getItem(`${QUIZ_TOPICS_STORAGE_KEY}_${subjectId}`)
+      setSelectedUnits(rawUnits ? JSON.parse(rawUnits) : [])
+    } catch {
+      setSelectedUnits([])
+    }
+  }, [subjectId])
+
   const questionsQuery = useQuery({
-    queryKey: ['questions'],
-    queryFn: api.questions,
+    queryKey: ['questions', subjectId],
+    queryFn: () => api.questions(subjectId),
     refetchInterval: 6000,
   })
 
   const meQuery = useQuery({
-    queryKey: ['me'],
-    queryFn: api.me,
+    queryKey: ['me', subjectId],
+    queryFn: () => api.me(subjectId),
   })
 
   const boardQuery = useQuery({
-    queryKey: ['leaderboard'],
-    queryFn: api.leaderboard,
+    queryKey: ['leaderboard', subjectId],
+    queryFn: () => api.leaderboard(subjectId),
     refetchInterval: 6000,
   })
 
   const allQuestions: Question[] = questionsQuery.data ?? []
   const myAnswers = meQuery.data?.answers ?? {}
 
-  // Sincronizar datos históricos del servidor (errores y tiempos > 5s) con el perfil adaptativo local
+  // Sincronizar datos históricos del servidor (errores y tiempos > 1 min) con el perfil adaptativo local
   useEffect(() => {
     if (!meQuery.data?.answers) return
     setAdaptiveProfile((prev) => {
@@ -504,14 +838,14 @@ function QuizWorkspace() {
         }
         return next
       })
-      qc.invalidateQueries({ queryKey: ['questions'] })
-      qc.invalidateQueries({ queryKey: ['me'] })
-      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+      qc.invalidateQueries({ queryKey: ['questions', subjectId] })
+      qc.invalidateQueries({ queryKey: ['me', subjectId] })
+      qc.invalidateQueries({ queryKey: ['leaderboard', subjectId] })
     },
   })
 
   const resetMutation = useMutation({
-    mutationFn: api.resetMyAnswers,
+    mutationFn: () => api.resetMyAnswers(subjectId),
     onSuccess: () => {
       setPullSessionAnswers({})
       setAdaptiveProfile({})
@@ -520,9 +854,9 @@ function QuizWorkspace() {
       } catch {
         // ignore
       }
-      qc.invalidateQueries({ queryKey: ['questions'] })
-      qc.invalidateQueries({ queryKey: ['me'] })
-      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+      qc.invalidateQueries({ queryKey: ['questions', subjectId] })
+      qc.invalidateQueries({ queryKey: ['me', subjectId] })
+      qc.invalidateQueries({ queryKey: ['leaderboard', subjectId] })
       setCurrentIndex(0)
     },
   })
@@ -535,7 +869,7 @@ function QuizWorkspace() {
     return Array.from(map.entries())
   }, [allQuestions])
 
-  // Analizar qué estilos de preguntas necesitan refuerzo (errores o tiempo de respuesta > 5 segundos)
+  // Analizar qué estilos de preguntas necesitan refuerzo (errores o tiempo de respuesta > 1 minuto)
   const adaptiveInsights = useMemo(() => {
     const styleBoost = new Map<string, { errors: number; slow: number; score: number }>()
     const unitBoost = new Map<string, number>()
@@ -595,7 +929,7 @@ function QuizWorkspace() {
 
     if (criteria === 'adaptive') {
       // Muestreo aleatorio ponderado: todas las preguntas pueden salir al azar, pero se inyectan
-      // con mucha mayor probabilidad preguntas del mismo ESTILO donde el usuario falló o tardó > 5s
+      // con mucha mayor probabilidad preguntas del mismo ESTILO donde el usuario falló o tardó > 1m
       const weights = allQuestions.map((q) => {
         const styleName = q.style || q.unit
         const sBoost = adaptiveInsights.styleBoost.get(styleName)?.score ?? 0
@@ -649,12 +983,13 @@ function QuizWorkspace() {
     if (allQuestions.length > 0 && poolQuestionIds.length === 0) {
       generateNewPool(poolSize, poolCriteria, false)
     }
-  }, [allQuestions.length])
+  }, [allQuestions.length, poolQuestionIds.length])
 
   const changeMode = (nextMode: QuizMode) => {
     setQuizMode(nextMode)
     setCurrentIndex(0)
     try {
+      localStorage.setItem(`${QUIZ_MODE_STORAGE_KEY}_${subjectId}`, nextMode)
       localStorage.setItem(QUIZ_MODE_STORAGE_KEY, nextMode)
     } catch {
       // ignore
@@ -664,6 +999,7 @@ function QuizWorkspace() {
   const toggleUnitSelection = (uName: string) => {
     setQuizMode('topics')
     try {
+      localStorage.setItem(`${QUIZ_MODE_STORAGE_KEY}_${subjectId}`, 'topics')
       localStorage.setItem(QUIZ_MODE_STORAGE_KEY, 'topics')
     } catch {
       // ignore
@@ -672,6 +1008,7 @@ function QuizWorkspace() {
       const exists = prev.includes(uName)
       const next = exists ? prev.filter((item) => item !== uName) : [...prev, uName]
       try {
+        localStorage.setItem(`${QUIZ_TOPICS_STORAGE_KEY}_${subjectId}`, JSON.stringify(next))
         localStorage.setItem(QUIZ_TOPICS_STORAGE_KEY, JSON.stringify(next))
       } catch {
         // ignore
@@ -686,6 +1023,7 @@ function QuizWorkspace() {
     setSelectedUnits(allUnitNames)
     setCurrentIndex(0)
     try {
+      localStorage.setItem(`${QUIZ_TOPICS_STORAGE_KEY}_${subjectId}`, JSON.stringify(allUnitNames))
       localStorage.setItem(QUIZ_TOPICS_STORAGE_KEY, JSON.stringify(allUnitNames))
     } catch {
       // ignore
@@ -1126,7 +1464,7 @@ function QuizWorkspace() {
             <div className="mode-controls-bar">
               <div className="mode-controls-left">
                 <span className="subset-progress-pill">
-                  Cuestionario Completo: <strong>{allQuestions.length} preguntas</strong> (TP 01 al TP 06 + Labs 01 al 04) •{' '}
+                  Cuestionario Completo ({subject.short_name}): <strong>{allQuestions.length} ejercicios</strong> •{' '}
                   Respondidas: <strong>{subsetStats.answered}/{subsetStats.total}</strong> ({subsetStats.pct}% precisión)
                 </span>
               </div>
@@ -1139,18 +1477,42 @@ function QuizWorkspace() {
                     setCurrentIndex(0)
                   }}
                 >
-                  🔀 {shuffleTopicsOrder ? 'Orden aleatorio (Activo)' : 'Ordenar por Unidad (TP 01 → TP 06)'}
+                  🔀 {shuffleTopicsOrder ? 'Orden aleatorio (Activo)' : 'Ordenar por Unidad'}
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {!currentQ ? (
+        {allQuestions.length === 0 ? (
+          <div className="panel-card empty-topics-state">
+            <span className="pill-badge">{subject.exam_badge}</span>
+            <h3>Preparcial de {subject.name} — Listo para Cargar Ejercicios</h3>
+            <p className="muted">
+              El entorno de <strong>{subject.name}</strong> (Tema Verde) ya está configurado con los 4 temas confirmados en el Aula Virtual por el Prof. Claudio Biale para el parcial del <strong>05/11/2026</strong>:
+            </p>
+            <div className="topics-grid" style={{ margin: '14px 0' }}>
+              {subject.topics.map((t) => (
+                <div key={t.code} className="topic-chip">
+                  <strong>{t.code}</strong>
+                  <span>{t.detail}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '14px' }}>
+              <Link to="/" className="btn-primary">
+                ← Volver al Portal de Materias
+              </Link>
+              <Link to="/materia/$subjectId" params={{ subjectId: 'redes2' }} className="btn-secondary">
+                Ir a Comunicaciones y Redes II (58 preguntas)
+              </Link>
+            </div>
+          </div>
+        ) : !currentQ ? (
           <div className="panel-card empty-topics-state">
             <h3>No hay temas seleccionados</h3>
             <p className="muted">
-              Seleccioná al menos uno o varios Trabajos Prácticos / Laboratorios en el panel izquierdo para comenzar el cuestionario por temas.
+              Seleccioná al menos uno o varios temas en el panel izquierdo para comenzar el cuestionario por temas.
             </p>
             <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
               <button type="button" className="btn-primary" onClick={selectAllUnits}>
@@ -1390,6 +1752,7 @@ function QuizWorkspace() {
 }
 
 export function LeaderboardPage() {
+  const { subjectId, subject } = useActiveSubject()
   const getToken = useToken()
   const userInfo = useParticipantInfo()
   const api = useMemo(
@@ -1398,34 +1761,40 @@ export function LeaderboardPage() {
   )
 
   const boardQuery = useQuery({
-    queryKey: ['leaderboard'],
-    queryFn: api.leaderboard,
+    queryKey: ['leaderboard', subjectId],
+    queryFn: () => api.leaderboard(subjectId),
     refetchInterval: 5000,
   })
 
   const meQuery = useQuery({
-    queryKey: ['me'],
-    queryFn: api.me,
+    queryKey: ['me', subjectId],
+    queryFn: () => api.me(subjectId),
     retry: false,
   })
 
   const entries = boardQuery.data ?? []
   const top3 = entries.slice(0, 3)
-  const totalQ = entries[0]?.total_questions ?? 58
+  const totalQ = entries[0]?.total_questions ?? (subjectId === 'redes2' ? 58 : 0)
 
   return (
     <div className="leaderboard-page">
       <div className="leaderboard-header">
         <div>
-          <span className="pill-badge">Actualización en tiempo real</span>
-          <h1>Leaderboard General — Comunicaciones y Redes II</h1>
+          <span className="pill-badge">{subject.exam_badge}</span>
+          <h1>Leaderboard General — {subject.name}</h1>
           <p>
-            Puntuación acumulada de todos los participantes sobre los {totalQ} ejercicios oficiales del 1er Parcial de Práctica (10 puntos por cada acierto).
+            Puntuación acumulada de todos los participantes sobre los ejercicios oficiales de{' '}
+            <strong>{subject.name}</strong> (10 puntos por cada acierto).
           </p>
         </div>
-        <Link to="/quiz" className="btn-primary">
-          Ir a responder preguntas
-        </Link>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <Link to="/quiz" className="btn-primary">
+            Ir a responder ejercicios
+          </Link>
+          <Link to="/" className="btn-secondary">
+            Cambiar Materia
+          </Link>
+        </div>
       </div>
 
       {/* Podio Top 3 */}
@@ -1452,53 +1821,59 @@ export function LeaderboardPage() {
 
       {/* Tabla Completa */}
       <div className="panel-card">
-        <table className="leaderboard-table">
-          <thead>
-            <tr>
-              <th>Pos.</th>
-              <th>Participante</th>
-              <th>Puntaje</th>
-              <th>Aciertos / Respondidas</th>
-              <th>% Precisión</th>
-              <th>Nota sobre Total ({totalQ})</th>
-              <th>Estado Parcial (≥ 60%)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((row) => {
-              const isMe = row.user_id === meQuery.data?.user.user_id
-              const pass = row.accuracy_pct >= 60
-              return (
-                <tr key={row.user_id} className={isMe ? 'row-me' : ''}>
-                  <td>
-                    <span className={`rank-badge rank-${row.rank}`}>#{row.rank}</span>
-                  </td>
-                  <td>
-                    <strong>{row.display_name}</strong>{' '}
-                    <small className="muted">@{row.username}</small>{' '}
-                    {isMe && <span className="you-tag">Vos</span>}
-                  </td>
-                  <td>
-                    <strong className="mono-score">{row.score} pts</strong>
-                  </td>
-                  <td>
-                    {row.correct_count} / {row.answered_count}{' '}
-                    <small className="muted">(de {row.total_questions})</small>
-                  </td>
-                  <td>
-                    <strong>{row.accuracy_pct}%</strong>
-                  </td>
-                  <td>{row.exam_grade_pct}%</td>
-                  <td>
-                    <span className={pass ? 'status-pill pass' : 'status-pill warn'}>
-                      {pass ? 'Aprobado (≥ 60%)' : 'Reforzar (< 60%)'}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        {entries.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Todavía no hay respuestas registradas para <strong>{subject.name}</strong>.
+          </p>
+        ) : (
+          <table className="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Pos.</th>
+                <th>Participante</th>
+                <th>Puntaje</th>
+                <th>Aciertos / Respondidas</th>
+                <th>% Precisión</th>
+                <th>Nota sobre Total ({totalQ})</th>
+                <th>Estado Parcial (≥ 60%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((row) => {
+                const isMe = row.user_id === meQuery.data?.user.user_id
+                const pass = row.accuracy_pct >= 60
+                return (
+                  <tr key={row.user_id} className={isMe ? 'row-me' : ''}>
+                    <td>
+                      <span className={`rank-badge rank-${row.rank}`}>#{row.rank}</span>
+                    </td>
+                    <td>
+                      <strong>{row.display_name}</strong>{' '}
+                      <small className="muted">@{row.username}</small>{' '}
+                      {isMe && <span className="you-tag">Vos</span>}
+                    </td>
+                    <td>
+                      <strong className="mono-score">{row.score} pts</strong>
+                    </td>
+                    <td>
+                      {row.correct_count} / {row.answered_count}{' '}
+                      <small className="muted">(de {row.total_questions})</small>
+                    </td>
+                    <td>
+                      <strong>{row.accuracy_pct}%</strong>
+                    </td>
+                    <td>{row.exam_grade_pct}%</td>
+                    <td>
+                      <span className={pass ? 'status-pill pass' : 'status-pill warn'}>
+                        {pass ? 'Aprobado (≥ 60%)' : 'Reforzar (< 60%)'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

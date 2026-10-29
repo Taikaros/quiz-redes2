@@ -908,7 +908,106 @@ QUESTIONS: list[dict] = [
         "explanation": "Los datos que encapsula IP en un ping de 3000 B son 8 B (cabecera ICMP Echo Request, que viaja solo en el 1er fragmento) + 3000 B = 3008 B. Repartiendo de a 1480 B (D_máx): Frag 1 = 1480 B (Total Length 1500), Frag 2 = 1480 B (Total Length 1500, Offset 1480) y Frag 3 = 48 B restantes (Total Length = 20 B IP + 48 B = 68 B, Offset 2960, MF = 0). Con DF = 1 el router descarta y envía ICMP Tipo 3 Código 4."
     }
 ]
+
+for _q in QUESTIONS:
+    _q.setdefault("subject", "redes2")
+
 QUESTIONS_BY_ID = {q["id"]: q for q in QUESTIONS}
+
+SUBJECTS: list[dict] = [
+    {
+        "id": "so",
+        "code": "SO",
+        "name": "Sistemas Operativos",
+        "short_name": "Sistemas Operativos",
+        "theme": "green",
+        "primary_color": "#059669",
+        "course_id": 51,
+        "exam_status": "confirmed",
+        "exam_badge": "Confirmado • Jueves 05/11/2026 — 10:00 h",
+        "exam_title": "1er Parcial Práctico — Sistemas Operativos",
+        "exam_date": "2026-11-05T10:00:00-03:00",
+        "professors": "Prof. Adj. Ing. Rubén Castaño • Aux. 1a Lic. Claudio Biale",
+        "schedule": "Teoría: Martes 14:00 a 16:00 h • Práctica: Jueves 10:00 a 12:00 h",
+        "description": "Preparcial interactivo sincronizado con el Aula Virtual FCEQyN (Curso #51). Temas confirmados por la cátedra para el 1er Parcial Práctico del 05/11/2026.",
+        "topics": [
+            {
+                "code": "TP 1 • Planificación de CPU",
+                "title": "Planificación de CPU",
+                "detail": "Criterios, algoritmos FCFS, SJF/SRTF, Prioridades, Round-Robin y Colas Multinivel",
+            },
+            {
+                "code": "TP 2 • Gestión de Procesos",
+                "title": "Gestión de Procesos",
+                "detail": "Estados, PCB, cambio de contexto, creación y terminación (fork, exec, wait), procesos zombi y huérfanos",
+            },
+            {
+                "code": "TP 2 • Señales y Tuberías",
+                "title": "Señales y Tuberías (Pipes)",
+                "detail": "Comunicación entre procesos (IPC), señales POSIX y tuberías en lenguaje C",
+            },
+            {
+                "code": "TP 3 • Interbloqueos",
+                "title": "Interbloqueos (Deadlocks)",
+                "detail": "Condiciones de Coffman, grafo de asignación de recursos, prevención, detección y Algoritmo del Banquero",
+            },
+        ],
+    },
+    {
+        "id": "redes2",
+        "code": "R2",
+        "name": "Comunicaciones y Redes II",
+        "short_name": "Comunicaciones y Redes II",
+        "theme": "blue",
+        "primary_color": "#1d4ed8",
+        "course_id": 50,
+        "exam_status": "completed",
+        "exam_badge": "1er Parcial Rendido • Jueves 29/10/2026 — Banco Activo",
+        "exam_title": "1er Parcial Práctico — Capas 1 a 4 (TP 01 al TP 06 + Labs 01 al 04)",
+        "exam_date": "2026-10-29T13:00:00-03:00",
+        "professors": "Cátedra Comunicaciones y Redes II — FCEQyN UNaM",
+        "schedule": "TP 01 al TP 06 y Laboratorios 01 al 04 (Capas 1 a 4 OSI)",
+        "description": "Banco colaborativo de 58 ejercicios de parcial con aprendizaje adaptativo, simulacro por pulls, multi-selección de temas y ranking en tiempo real.",
+        "topics": [
+            {
+                "code": "TP 01 / Lab 01",
+                "title": "TP 01 / Lab 01: Dispositivos y Dimensionamiento",
+                "detail": "Dominios colisión/broadcast, Backplane Full-Duplex y Uplink 20:1",
+            },
+            {
+                "code": "Lab 02",
+                "title": "Lab 02: Cableado Estructurado TIA/EIA-568",
+                "detail": "Cableado Estructurado ANSI/TIA/EIA-568, T568A/B y enlace de 100 m",
+            },
+            {
+                "code": "TP 03 / Lab 03",
+                "title": "TP 03 / Lab 03: Ethernet, VLANs (802.1Q) y STP",
+                "detail": "Trama 802.3, VLAN 802.1Q, STP 802.1D vs RSTP 802.1w, PoE e IOS CLI",
+            },
+            {
+                "code": "TP 04 / Lab 04",
+                "title": "TP 04 / Lab 04: Fibra Óptica, OTDR y GPON",
+                "detail": "Fibra SMF vs MMF, GPON (WDM/TDMA/DBA), Fusión, OTDR y ORL",
+            },
+            {
+                "code": "TP 05",
+                "title": "TP 05: Redes Inalámbricas IEEE 802.11 (Wi-Fi)",
+                "detail": "Wi-Fi 6E/7 (ENACOM 756/2023), Canales, DFS, Cálculo CWNP y Espectro RF",
+            },
+            {
+                "code": "TP 06",
+                "title": "TP 06: IPv4, Encapsulamiento y Fragmentación",
+                "detail": "IPv4, Encapsulamiento VoIP/RTP/UDP, Cabecera IP, TTL, ICMP y Wireshark",
+            },
+        ],
+    },
+]
+SUBJECTS_BY_ID = {s["id"]: s for s in SUBJECTS}
+
+
+def get_questions_for_subject(subject: str | None) -> list[dict]:
+    subj = (subject or "redes2").strip().lower()
+    return [q for q in QUESTIONS if q.get("subject", "redes2") == subj]
 
 
 # ---------------------------------------------------------------- Configuración y Simulación en Memoria
@@ -1303,7 +1402,24 @@ async def get_user_responses(env, user_id: str) -> dict[str, dict]:
 # ---------------------------------------------------------------- Rutas de API
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "quiz-redes2-api", "total_questions": len(QUESTIONS)}
+    return {
+        "ok": True,
+        "service": "quiz-fceqyn-api",
+        "total_questions": len(QUESTIONS),
+        "subjects": [s["id"] for s in SUBJECTS],
+    }
+
+
+@app.get("/api/subjects")
+async def list_subjects():
+    result = []
+    for s in SUBJECTS:
+        qs = get_questions_for_subject(s["id"])
+        result.append({
+            **s,
+            "question_count": len(qs),
+        })
+    return result
 
 
 @app.post("/api/auth/register", status_code=201)
@@ -1331,14 +1447,20 @@ async def link_legacy(body: LegacyLinkBody, request: Request, user: dict = Depen
 
 
 @app.get("/api/me")
-async def me(request: Request, user: dict = Depends(current_user)):
+async def me(request: Request, subject: str | None = None, user: dict = Depends(current_user)):
     env = get_env(request)
     await ensure_user_in_db(env, user)
-    my_answers = await get_user_responses(env, user["user_id"])
+    all_my_answers = await get_user_responses(env, user["user_id"])
+    if subject:
+        subj_qids = {q["id"] for q in get_questions_for_subject(subject)}
+        my_answers = {k: v for k, v in all_my_answers.items() if k in subj_qids}
+    else:
+        my_answers = all_my_answers
     correct_count = sum(1 for a in my_answers.values() if a["is_correct"])
     answered_count = len(my_answers)
     return {
         "user": user,
+        "subject": (subject or "all").lower(),
         "answered_count": answered_count,
         "correct_count": correct_count,
         "score": correct_count * 10,
@@ -1348,15 +1470,16 @@ async def me(request: Request, user: dict = Depends(current_user)):
 
 
 @app.get("/api/questions")
-async def list_questions(request: Request):
+async def list_questions(request: Request, subject: str | None = None):
     env = get_env(request)
     stats = await compute_all_question_stats(env)
+    qs = get_questions_for_subject(subject) if subject else QUESTIONS
     return [
         {
             **q,
             "stats": stats[q["id"]],
         }
-        for q in QUESTIONS
+        for q in qs
     ]
 
 
@@ -1403,12 +1526,16 @@ async def submit_answer(body: AnswerBody, request: Request, user: dict = Depends
             practice_retry = True
 
     all_stats = await compute_all_question_stats(env)
-    my_answers = await get_user_responses(env, user["user_id"])
+    all_my_answers = await get_user_responses(env, user["user_id"])
+    q_subject = q.get("subject", "redes2")
+    subj_qids = {item["id"] for item in get_questions_for_subject(q_subject)}
+    my_answers = {k: v for k, v in all_my_answers.items() if k in subj_qids}
     correct_count = sum(1 for a in my_answers.values() if a["is_correct"])
     answered_count = len(my_answers)
 
     return {
         "question_id": q["id"],
+        "subject": q_subject,
         "selected_option": body.selected_option,
         "is_correct": is_correct,
         "correct_option": q["correct"],
@@ -1426,27 +1553,51 @@ async def submit_answer(body: AnswerBody, request: Request, user: dict = Depends
 
 
 @app.post("/api/reset-my-answers")
-async def reset_my_answers(request: Request, user: dict = Depends(current_user)):
+async def reset_my_answers(request: Request, subject: str | None = None, user: dict = Depends(current_user)):
     env = get_env(request)
     uid = user["user_id"]
+    if subject:
+        subj_qids = [q["id"] for q in get_questions_for_subject(subject)]
+    else:
+        subj_qids = None
+
     if use_local_db(env):
-        keys_to_del = [k for k in _mem_responses if k[0] == uid]
+        keys_to_del = [
+            k for k in _mem_responses
+            if k[0] == uid and (subj_qids is None or k[1] in set(subj_qids))
+        ]
         for k in keys_to_del:
             del _mem_responses[k]
     else:
-        await neon_sql(env, "delete from quiz_responses where user_id = $1", [uid])
+        if subj_qids is not None:
+            if subj_qids:
+                await neon_sql(
+                    env,
+                    "delete from quiz_responses where user_id = $1 and question_id = any($2::text[])",
+                    [uid, subj_qids],
+                )
+        else:
+            await neon_sql(env, "delete from quiz_responses where user_id = $1", [uid])
     return {"ok": True}
 
 
 @app.get("/api/leaderboard")
-async def get_leaderboard(request: Request):
+async def get_leaderboard(request: Request, subject: str | None = None):
     env = get_env(request)
-    total_questions = len(QUESTIONS)
+    subj_questions = get_questions_for_subject(subject) if subject else QUESTIONS
+    total_questions = len(subj_questions)
+    if total_questions == 0:
+        return []
+    subj_qids = [q["id"] for q in subj_questions]
+    subj_qids_set = set(subj_qids)
 
     if use_local_db(env):
         board = []
         for uid, u in _mem_users.items():
-            user_resps = [r for (r_uid, _), r in _mem_responses.items() if r_uid == uid]
+            user_resps = [
+                r for (r_uid, qid), r in _mem_responses.items()
+                if r_uid == uid and qid in subj_qids_set
+            ]
             answered = len(user_resps)
             if answered == 0:
                 continue
@@ -1477,12 +1628,14 @@ async def get_leaderboard(request: Request):
           u.username,
           u.display_name,
           count(r.id)::int as answered_count,
-           coalesce(sum(case when r.is_correct then 1 else 0 end), 0)::int as correct_count
+          coalesce(sum(case when r.is_correct then 1 else 0 end), 0)::int as correct_count
         from quiz_users u
         join quiz_responses r on r.user_id = u.user_id
+        where r.question_id = any($1::text[])
         group by u.user_id, u.username, u.display_name
         order by correct_count desc, answered_count asc, u.display_name asc
         """,
+        [subj_qids],
     )
     board = []
     for idx, r in enumerate(rows):
