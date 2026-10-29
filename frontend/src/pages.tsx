@@ -476,6 +476,7 @@ function QuizWorkspace() {
           is_correct: data.is_correct,
           answered_at: new Date().toISOString(),
           response_time_ms: rMs,
+          practice_retry: Boolean(data.practice_retry),
         },
       }))
       setAdaptiveProfile((prev) => {
@@ -1260,8 +1261,9 @@ function QuizWorkspace() {
                           key={origIdx}
                           type="button"
                           className={cardClass}
-                          disabled={answerMutation.isPending}
+                          disabled={Boolean(currentAnswer) || answerMutation.isPending}
                           onClick={() => {
+                            if (currentAnswer) return
                             const measuredMs = Math.max(
                               100,
                               Math.round(performance.now() - questionStartRef.current),
@@ -1306,9 +1308,16 @@ function QuizWorkspace() {
                     >
                       <div className="exp-title">
                         {currentAnswer.is_correct
-                          ? `✓ ¡Respuesta Correcta! (+10 puntos) • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`
+                          ? currentAnswer.practice_retry
+                            ? `✓ ¡Respuesta Correcta! (Repaso de práctica: no suma puntos extra) • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`
+                            : `✓ ¡Respuesta Correcta! (+10 puntos) • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`
                           : `✗ Respuesta Incorrecta — La opción correcta es la ${correctLetter} • Tiempo: ${((currentAnswer.response_time_ms ?? 0) / 1000).toFixed(1)}s`}
                       </div>
+                      {currentAnswer.practice_retry && (
+                        <div className="exp-adaptive-note">
+                          🔁 <strong>Modo Repaso:</strong> Ya habías respondido esta pregunta en un intento anterior, por lo que tu puntaje general y tu % de aciertos mantienen el resultado de tu primera respuesta (solo se reinician si tocás <em>“Reiniciar mis respuestas”</em>).
+                        </div>
+                      )}
                       {(!currentAnswer.is_correct || (currentAnswer.response_time_ms ?? 0) > SLOW_RESPONSE_MS) && (
                         <div className="exp-adaptive-note">
                           🧠 <strong>Nota de aprendizaje adaptativo:</strong> Como{' '}

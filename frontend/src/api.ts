@@ -28,6 +28,7 @@ export type UserAnswerRecord = {
   is_correct: boolean
   answered_at: string
   response_time_ms?: number
+  practice_retry?: boolean
 }
 
 export type MeResponse = {
@@ -45,6 +46,7 @@ export type AnswerResponse = {
   is_correct: boolean
   correct_option: number
   response_time_ms?: number
+  practice_retry?: boolean
   explanation: string
   stats: QuestionStats
   user_summary: {
@@ -317,19 +319,17 @@ export function createApi(
       submitAnswer: async (question_id, selected_option, response_time_ms = 0) => {
         const q = BASE_QUESTIONS.find((x) => x.id === question_id)!
         const prev = mockMyAnswers[question_id]
-        if (prev) {
-          mockCounts[question_id][prev.selected_option] = Math.max(
-            0,
-            mockCounts[question_id][prev.selected_option] - 1,
-          )
-        }
-        mockCounts[question_id][selected_option] = (mockCounts[question_id][selected_option] || 0) + 1
         const is_correct = selected_option === q.correct
-        mockMyAnswers[question_id] = {
-          selected_option,
-          is_correct,
-          answered_at: new Date().toISOString(),
-          response_time_ms,
+        const practice_retry = Boolean(prev)
+        if (!prev) {
+          mockCounts[question_id][selected_option] = (mockCounts[question_id][selected_option] || 0) + 1
+          mockMyAnswers[question_id] = {
+            selected_option,
+            is_correct,
+            answered_at: new Date().toISOString(),
+            response_time_ms,
+            practice_retry: false,
+          }
         }
         const answered_count = Object.keys(mockMyAnswers).length
         const correct_count = Object.values(mockMyAnswers).filter((a) => a.is_correct).length
@@ -339,6 +339,7 @@ export function createApi(
           is_correct,
           correct_option: q.correct,
           response_time_ms,
+          practice_retry,
           explanation: q.explanation,
           stats: buildMockStats(question_id, q.correct),
           user_summary: {

@@ -778,6 +778,10 @@ a {
   border-color: var(--primary);
 }
 
+.option-card:disabled {
+  cursor: default;
+}
+
 .option-pct-bar {
   position: absolute;
   top: 0;

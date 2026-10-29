@@ -1373,30 +1373,34 @@ async def submit_answer(body: AnswerBody, request: Request, user: dict = Depends
     is_correct = body.selected_option == q["correct"]
     now_str = _ahora()
     r_time = max(0, int(body.response_time_ms or 0))
+    practice_retry = False
 
     if use_local_db(env):
-        _mem_responses[(user["user_id"], q["id"])] = {
-            "user_id": user["user_id"],
-            "question_id": q["id"],
-            "selected_option": body.selected_option,
-            "is_correct": is_correct,
-            "answered_at": now_str,
-            "response_time_ms": r_time,
-        }
+        if (user["user_id"], q["id"]) in _mem_responses:
+            practice_retry = True
+        else:
+            _mem_responses[(user["user_id"], q["id"])] = {
+                "user_id": user["user_id"],
+                "question_id": q["id"],
+                "selected_option": body.selected_option,
+                "is_correct": is_correct,
+                "answered_at": now_str,
+                "response_time_ms": r_time,
+            }
     else:
-        await neon_sql(
+        inserted = await neon_sql(
             env,
             """
             insert into quiz_responses (user_id, question_id, selected_option, is_correct, answered_at, response_time_ms)
             values ($1, $2, $3, $4, now(), $5)
             on conflict (user_id, question_id)
-            do update set selected_option = excluded.selected_option,
-                          is_correct = excluded.is_correct,
-                          answered_at = now(),
-                          response_time_ms = excluded.response_time_ms
+            do nothing
+            returning id
             """,
             [user["user_id"], q["id"], body.selected_option, is_correct, r_time],
         )
+        if not inserted:
+            practice_retry = True
 
     all_stats = await compute_all_question_stats(env)
     my_answers = await get_user_responses(env, user["user_id"])
@@ -1409,6 +1413,7 @@ async def submit_answer(body: AnswerBody, request: Request, user: dict = Depends
         "is_correct": is_correct,
         "correct_option": q["correct"],
         "response_time_ms": r_time,
+        "practice_retry": practice_retry,
         "explanation": q["explanation"],
         "stats": all_stats[q["id"]],
         "user_summary": {
